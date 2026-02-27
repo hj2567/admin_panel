@@ -1,65 +1,252 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
+export default function HomePage() {
+  const [loading, setLoading] = useState(true);
+  const [authed, setAuthed] = useState(false);
+  const [email, setEmail] = useState("");
+
+  useEffect(() => {
+    const run = async () => {
+      const { data } = await supabase.auth.getSession();
+      const session = data.session;
+      setAuthed(!!session);
+      setEmail(session?.user?.email ?? "");
+      setLoading(false);
+    };
+    run();
+  }, []);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main style={ui.shell}>
+      <Background />
+
+      <div style={ui.wrap}>
+        <div style={ui.hero}>
+          <div style={ui.kickerRow}>
+            <span style={ui.kicker}>ADMIN</span>
+            <span style={ui.pill}>{loading ? "Checking session" : authed ? "Authenticated" : "Sign in required"}</span>
+          </div>
+
+          <h1 style={ui.h1}>Admin Panel</h1>
+
+          <div style={ui.subline}>
+            {loading ? (
+              <span style={{ opacity: 0.75 }}>Loading…</span>
+            ) : authed ? (
+              <>
+                Signed in as <b style={{ opacity: 0.95 }}>{email || "unknown"}</b>
+              </>
+            ) : (
+              <span style={{ opacity: 0.8 }}>
+                Log in to access the admin dashboard.
+              </span>
+            )}
+          </div>
+
+          <div style={{ marginTop: 22 }}>
+            {loading ? (
+              <div style={ui.skeletonBtn} />
+            ) : authed ? (
+              <a
+                href="/admin"
+                style={ui.primaryBtn}
+                onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
+                onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0px)")}
+              >
+                Continue to Admin <span style={{ opacity: 0.7 }}>→</span>
+              </a>
+            ) : (
+              <a
+                href="/auth?next=/admin"
+                style={ui.primaryBtn}
+                onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
+                onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0px)")}
+              >
+                Log in with Google <span style={{ opacity: 0.7 }}>→</span>
+              </a>
+            )}
+          </div>
+
+          <div style={ui.footerRow}>
+            <span style={ui.footerPill}>Secure</span>
+            <span style={ui.footerPill}>Superadmin-only</span>
+            <span style={ui.footerPill}>Staging-safe</span>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
+
+function Background() {
+  return (
+    <>
+      <div style={ui.bgGradient} />
+      <div style={ui.bgGlowA} />
+      <div style={ui.bgGlowB} />
+      <div style={ui.bgNoise} />
+    </>
+  );
+}
+
+const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
+  fontFamily:
+    'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+
+  shell: {
+    minHeight: "100vh",
+    position: "relative",
+    overflow: "hidden",
+    fontFamily:
+      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+    color: "white",
+    background: "#06070a",
+  },
+
+ wrap: {
+   position: "relative",
+   zIndex: 2,
+   minHeight: "100vh",
+   display: "grid",
+   placeItems: "center",
+   padding: 28,
+ },
+
+ hero: {
+   width: "min(920px, 94vw)",
+   textAlign: "center",
+ },
+
+kickerRow: {
+  display: "flex",
+  gap: 10,
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+  kicker: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "7px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    fontWeight: 950,
+    fontSize: 12,
+    letterSpacing: 2,
+    opacity: 0.95,
+  },
+
+  pill: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "7px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.04)",
+    fontWeight: 900,
+    fontSize: 12,
+    opacity: 0.85,
+  },
+
+  h1: {
+    fontSize: 86,
+    lineHeight: 0.92,
+    letterSpacing: -2.5,
+    margin: "18px 0 12px",
+    fontWeight: 1000 as any,
+  },
+
+  subline: {
+    fontSize: 16,
+    opacity: 0.8,
+    lineHeight: 1.6,
+    maxWidth: 720,
+  },
+
+  primaryBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+    padding: "16px 18px",
+    width: "min(360px, 100%)",
+    borderRadius: 999,
+    textDecoration: "none",
+    color: "white",
+    fontWeight: 950,
+    letterSpacing: -0.2,
+    border: "1px solid rgba(255,255,255,0.18)",
+    background: "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.09))",
+    boxShadow: "0 14px 30px rgba(0,0,0,0.35)",
+    transform: "translateY(0px)",
+    transition: "transform 120ms ease",
+  },
+
+  skeletonBtn: {
+    width: "min(360px, 100%)",
+    height: 54,
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.06)",
+  },
+
+  footerRow: {
+    marginTop: 18,
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    justifyContent: "center",
+    opacity: 0.95,
+  },
+
+  footerPill: {
+    fontSize: 12,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.05)",
+    opacity: 0.85,
+  },
+
+  // Background layers (match admin)
+  bgGradient: {
+    position: "absolute",
+    inset: 0,
+    background:
+      "radial-gradient(1200px 700px at 10% 10%, rgba(120,140,255,0.22), transparent 55%), radial-gradient(900px 650px at 90% 20%, rgba(255,140,200,0.14), transparent 60%), radial-gradient(900px 650px at 30% 110%, rgba(0,255,180,0.10), transparent 55%)",
+  },
+
+  bgGlowA: {
+    position: "absolute",
+    width: 900,
+    height: 900,
+    left: -320,
+    top: -340,
+    background: "radial-gradient(circle, rgba(130,120,255,0.18), transparent 60%)",
+    filter: "blur(2px)",
+  },
+
+  bgGlowB: {
+    position: "absolute",
+    width: 900,
+    height: 900,
+    right: -320,
+    bottom: -380,
+    background: "radial-gradient(circle, rgba(255,120,200,0.14), transparent 60%)",
+    filter: "blur(2px)",
+  },
+
+  bgNoise: {
+    position: "absolute",
+    inset: 0,
+    backgroundImage:
+      "url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22><filter id=%22n%22 x=%220%22 y=%220%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.8%22 numOctaves=%224%22 stitchTiles=%22stitch%22/></filter><rect width=%22120%22 height=%22120%22 filter=%22url(%23n)%22 opacity=%220.08%22/></svg>')",
+    opacity: 0.22,
+    mixBlendMode: "overlay",
+    pointerEvents: "none",
+  },
+};
