@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 export default function HomePage() {
   const [loading, setLoading] = useState(true);
@@ -11,6 +11,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const run = async () => {
+      const supabase = getSupabaseBrowserClient();
       const { data } = await supabase.auth.getSession();
       const session = data.session;
       setAuthed(!!session);

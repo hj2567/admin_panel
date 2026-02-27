@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 export default function AuthCallback() {
   useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+
     const finish = async () => {
       await supabase.auth.getSession();
 

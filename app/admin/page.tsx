@@ -2,13 +2,14 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 type Counts = { users: number; images: number; captions: number };
 type DailyPoint = { day: string; count: number };
 
 export default function AdminPage() {
   const [loading, setLoading] = useState(true);
+  const supabase = getSupabaseBrowserClient();
 
   const [email, setEmail] = useState<string>("");
   const [counts, setCounts] = useState<Counts>({
