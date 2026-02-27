@@ -9,17 +9,27 @@ export default function HomePage() {
   const [authed, setAuthed] = useState(false);
   const [email, setEmail] = useState("");
 
-  useEffect(() => {
-    const run = async () => {
-      const supabase = getSupabaseBrowserClient();
-      const { data } = await supabase.auth.getSession();
-      const session = data.session;
-      setAuthed(!!session);
-      setEmail(session?.user?.email ?? "");
-      setLoading(false);
-    };
-    run();
-  }, []);
+ useEffect(() => {
+   const run = async () => {
+     try {
+       const supabase = getSupabaseBrowserClient();
+       const { data, error } = await supabase.auth.getSession();
+       if (error) throw error;
+
+       const session = data.session;
+       setAuthed(!!session);
+       setEmail(session?.user?.email ?? "");
+     } catch (err) {
+       // If session check fails, treat as logged out so user can click login
+       console.error("getSession failed:", err);
+       setAuthed(false);
+       setEmail("");
+     } finally {
+       setLoading(false);
+     }
+   };
+   run();
+ }, []);
 
   return (
     <main style={ui.shell}>
