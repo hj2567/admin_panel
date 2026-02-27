@@ -1,9 +1,14 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
   const [authed, setAuthed] = useState(false);
@@ -28,6 +33,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       const userEmail = session.user.email || "";
       setEmail(userEmail);
 
+      // DEV-only bypass
       const devBypassEmail = process.env.NEXT_PUBLIC_ADMIN_DEV_BYPASS_EMAIL;
       const isDev = process.env.NODE_ENV !== "production";
       const bypass =
@@ -36,6 +42,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         devBypassEmail.length > 0 &&
         userEmail.toLowerCase() === devBypassEmail.toLowerCase();
 
+      // profiles.is_superadmin check (fail-closed)
       const { data: prof, error } = await supabase
         .from("profiles")
         .select("is_superadmin")
@@ -45,7 +52,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       const isSuper = !error && !!prof?.is_superadmin;
 
       setAllowed(isSuper || bypass);
-      setWhy(isSuper ? "superadmin" : bypass ? "dev-bypass" : error ? "blocked-or-missing-profile" : "not-superadmin");
+      setWhy(
+        isSuper
+          ? "superadmin"
+          : bypass
+          ? "dev-bypass"
+          : error
+          ? "blocked-or-missing-profile"
+          : "not-superadmin"
+      );
+
       setLoading(false);
     };
 
@@ -77,14 +93,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div style={styles.kicker}>ADMIN</div>
             <div style={styles.title}>Admin Panel</div>
             <div style={styles.subtitle}>
-              Sign in to continue. Access is restricted to authorized superadmins.
+              Sign in to continue. Access is restricted to authorized
+              superadmins.
             </div>
 
             <a
               href="/auth?next=/admin"
               style={styles.primaryBtn}
-              onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
-              onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0px)")}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.transform = "translateY(-1px)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.transform = "translateY(0px)")
+              }
             >
               Log in with Google <span style={{ opacity: 0.75 }}>→</span>
             </a>
@@ -110,19 +131,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div style={styles.kicker}>ADMIN</div>
             <div style={styles.title}>Access denied</div>
             <div style={styles.subtitle}>
-              Your account is signed in, but it doesn’t have <code>profiles.is_superadmin</code>.
+              Your account is signed in, but it doesn’t have{" "}
+              <code>profiles.is_superadmin</code>.
             </div>
 
             <div style={styles.infoBox}>
               <div style={{ opacity: 0.7, fontSize: 12 }}>Signed in as</div>
-              <div style={{ fontWeight: 950, marginTop: 4, fontSize: 20 }}>{email || "unknown"}</div>
+              <div style={{ fontWeight: 950, marginTop: 4, fontSize: 20 }}>
+                {email || "unknown"}
+              </div>
               <div style={{ opacity: 0.55, fontSize: 12, marginTop: 6 }}>
                 Debug: <code>{why}</code>
               </div>
             </div>
 
             <button
-              onClick={() => supabase.auth.signOut().then(() => window.location.replace("/"))}
+              onClick={() =>
+                supabase.auth
+                  .signOut()
+                  .then(() => window.location.replace("/"))
+              }
               style={styles.secondaryBtn}
             >
               Sign out
@@ -134,7 +162,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   // Allowed
-  return <div style={{ fontFamily: styles.fontFamily }}>{children}</div>;
+  return <div style={{ fontFamily }}>{children}</div>;
 }
 
 function Background() {
@@ -148,19 +176,18 @@ function Background() {
   );
 }
 
-const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
-  fontFamily:
-    'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+const fontFamily =
+  'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"';
 
+const styles = {
   shell: {
     minHeight: "100vh",
     position: "relative",
     overflow: "hidden",
-    fontFamily:
-      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+    fontFamily,
     color: "white",
     background: "#06070a",
-  },
+  } satisfies CSSProperties,
 
   center: {
     position: "relative",
@@ -169,7 +196,7 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     display: "grid",
     placeItems: "center",
     padding: 24,
-  },
+  } satisfies CSSProperties,
 
   card: {
     width: "min(920px, 92vw)",
@@ -179,7 +206,7 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     background: "rgba(255,255,255,0.06)",
     boxShadow: "0 18px 70px rgba(0,0,0,0.55)",
     backdropFilter: "blur(10px)",
-  },
+  } satisfies CSSProperties,
 
   kicker: {
     display: "inline-flex",
@@ -194,15 +221,15 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     textTransform: "uppercase",
     opacity: 0.95,
     width: "fit-content",
-  },
+  } satisfies CSSProperties,
 
   title: {
     fontSize: 76,
     lineHeight: 0.95,
-    fontWeight: 1000 as any,
+    fontWeight: 1000,
     marginTop: 16,
     letterSpacing: -2,
-  },
+  } satisfies CSSProperties,
 
   subtitle: {
     marginTop: 14,
@@ -210,7 +237,7 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     fontSize: 18,
     lineHeight: 1.55,
     maxWidth: 720,
-  },
+  } satisfies CSSProperties,
 
   primaryBtn: {
     marginTop: 22,
@@ -226,11 +253,12 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     fontWeight: 950,
     letterSpacing: -0.2,
     border: "1px solid rgba(255,255,255,0.18)",
-    background: "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.09))",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.09))",
     boxShadow: "0 14px 30px rgba(0,0,0,0.35)",
     transform: "translateY(0px)",
     transition: "transform 120ms ease, background 120ms ease",
-  },
+  } satisfies CSSProperties,
 
   secondaryBtn: {
     marginTop: 18,
@@ -242,7 +270,7 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     color: "white",
     cursor: "pointer",
     width: "min(220px, 100%)",
-  },
+  } satisfies CSSProperties,
 
   footerRow: {
     marginTop: 16,
@@ -250,7 +278,7 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     gap: 10,
     flexWrap: "wrap",
     opacity: 0.95,
-  },
+  } satisfies CSSProperties,
 
   footerPill: {
     fontSize: 12,
@@ -259,7 +287,7 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     border: "1px solid rgba(255,255,255,0.12)",
     background: "rgba(255,255,255,0.05)",
     opacity: 0.85,
-  },
+  } satisfies CSSProperties,
 
   infoBox: {
     marginTop: 18,
@@ -267,15 +295,14 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     border: "1px solid rgba(255,255,255,0.14)",
     background: "rgba(255,255,255,0.05)",
     padding: 18,
-  },
+  } satisfies CSSProperties,
 
-  // Background layers
   bgGradient: {
     position: "absolute",
     inset: 0,
     background:
       "radial-gradient(1200px 700px at 10% 10%, rgba(120,140,255,0.22), transparent 55%), radial-gradient(900px 650px at 90% 20%, rgba(255,140,200,0.14), transparent 60%), radial-gradient(900px 650px at 30% 110%, rgba(0,255,180,0.10), transparent 55%)",
-  },
+  } satisfies CSSProperties,
 
   bgGlowA: {
     position: "absolute",
@@ -283,9 +310,10 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     height: 900,
     left: -320,
     top: -340,
-    background: "radial-gradient(circle, rgba(130,120,255,0.18), transparent 60%)",
+    background:
+      "radial-gradient(circle, rgba(130,120,255,0.18), transparent 60%)",
     filter: "blur(2px)",
-  },
+  } satisfies CSSProperties,
 
   bgGlowB: {
     position: "absolute",
@@ -293,9 +321,10 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     height: 900,
     right: -320,
     bottom: -380,
-    background: "radial-gradient(circle, rgba(255,120,200,0.14), transparent 60%)",
+    background:
+      "radial-gradient(circle, rgba(255,120,200,0.14), transparent 60%)",
     filter: "blur(2px)",
-  },
+  } satisfies CSSProperties,
 
   bgNoise: {
     position: "absolute",
@@ -305,5 +334,5 @@ const styles: Record<string, React.CSSProperties> & { fontFamily: string } = {
     opacity: 0.22,
     mixBlendMode: "overlay",
     pointerEvents: "none",
-  },
+  } satisfies CSSProperties,
 };

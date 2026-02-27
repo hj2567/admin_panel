@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -10,13 +11,27 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
 
   const [email, setEmail] = useState<string>("");
-  const [counts, setCounts] = useState<Counts>({ users: 0, images: 0, captions: 0 });
+  const [counts, setCounts] = useState<Counts>({
+    users: 0,
+    images: 0,
+    captions: 0,
+  });
 
   const [last7, setLast7] = useState<DailyPoint[]>([]);
-  const [topImages, setTopImages] = useState<{ image_id: string; url?: string; caption_count: number }[]>([]);
-  const [topUsers, setTopUsers] = useState<{ user_id: string; email?: string; caption_count: number }[]>([]);
-  const [longest, setLongest] = useState<{ id: string; image_id: string; content: string; len: number }[]>([]);
-  const [health, setHealth] = useState<{ pctLong: number; avgLen: number; medianLen: number }>({
+  const [topImages, setTopImages] = useState<
+    { image_id: string; url?: string; caption_count: number }[]
+  >([]);
+  const [topUsers, setTopUsers] = useState<
+    { user_id: string; email?: string; caption_count: number }[]
+  >([]);
+  const [longest, setLongest] = useState<
+    { id: string; image_id: string; content: string; len: number }[]
+  >([]);
+  const [health, setHealth] = useState<{
+    pctLong: number;
+    avgLen: number;
+    medianLen: number;
+  }>({
     pctLong: 0,
     avgLen: 0,
     medianLen: 0,
@@ -70,21 +85,31 @@ export default function AdminPage() {
         .filter((n) => n > 0)
         .sort((a, b) => a - b);
 
-      const avgLen = lens.length ? lens.reduce((a, b) => a + b, 0) / lens.length : 0;
+      const avgLen = lens.length
+        ? lens.reduce((a, b) => a + b, 0) / lens.length
+        : 0;
       const medianLen = lens.length ? lens[Math.floor(lens.length / 2)] : 0;
       const longThreshold = 80;
-      const pctLong = lens.length ? (lens.filter((n) => n >= longThreshold).length / lens.length) * 100 : 0;
+      const pctLong = lens.length
+        ? (lens.filter((n) => n >= longThreshold).length / lens.length) * 100
+        : 0;
       setHealth({ pctLong, avgLen, medianLen });
 
       const imgCounts = new Map<string, number>();
-      for (const row of caps) imgCounts.set(row.image_id, (imgCounts.get(row.image_id) ?? 0) + 1);
-      const topImgIds = [...imgCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+      for (const row of caps)
+        imgCounts.set(row.image_id, (imgCounts.get(row.image_id) ?? 0) + 1);
+      const topImgIds = [...imgCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6);
 
       if (topImgIds.length) {
-        const { data: imgs } = await supabase.from("images").select("id,url").in(
-          "id",
-          topImgIds.map(([id]) => id)
-        );
+        const { data: imgs } = await supabase
+          .from("images")
+          .select("id,url")
+          .in(
+            "id",
+            topImgIds.map(([id]) => id)
+          );
         const urlById = new Map((imgs ?? []).map((x: any) => [x.id, x.url]));
         setTopImages(
           topImgIds.map(([image_id, caption_count]) => ({
@@ -98,15 +123,27 @@ export default function AdminPage() {
       }
 
       const userCounts = new Map<string, number>();
-      for (const row of caps) if (row.created_by) userCounts.set(row.created_by, (userCounts.get(row.created_by) ?? 0) + 1);
-      const topUserIds = [...userCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+      for (const row of caps)
+        if (row.created_by)
+          userCounts.set(
+            row.created_by,
+            (userCounts.get(row.created_by) ?? 0) + 1
+          );
+      const topUserIds = [...userCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6);
 
       if (topUserIds.length) {
-        const { data: profs } = await supabase.from("profiles").select("id,email").in(
-          "id",
-          topUserIds.map(([id]) => id)
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("id,email")
+          .in(
+            "id",
+            topUserIds.map(([id]) => id)
+          );
+        const emailById = new Map(
+          (profs ?? []).map((x: any) => [x.id, x.email])
         );
-        const emailById = new Map((profs ?? []).map((x: any) => [x.id, x.email]));
         setTopUsers(
           topUserIds.map(([user_id, caption_count]) => ({
             user_id,
@@ -135,7 +172,10 @@ export default function AdminPage() {
     run();
   }, []);
 
-  const maxY = useMemo(() => Math.max(1, ...last7.map((p) => p.count)), [last7]);
+  const maxY = useMemo(
+    () => Math.max(1, ...last7.map((p) => p.count)),
+    [last7]
+  );
 
   return (
     <main style={ui.shell}>
@@ -161,8 +201,12 @@ export default function AdminPage() {
               window.location.replace("/");
             }}
             style={ui.signout}
-            onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-1px)")}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0px)")}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.transform = "translateY(-1px)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.transform = "translateY(0px)")
+            }
           >
             Sign out <span style={{ opacity: 0.7 }}>→</span>
           </button>
@@ -171,15 +215,29 @@ export default function AdminPage() {
         {loading ? (
           <div style={ui.loadingCard}>
             <div style={ui.loadingTitle}>Loading dashboard…</div>
-            <div style={ui.loadingSub}>Fetching counts and last-7-day activity.</div>
+            <div style={ui.loadingSub}>
+              Fetching counts and last-7-day activity.
+            </div>
           </div>
         ) : (
           <>
             {/* KPI row */}
             <section style={ui.kpiGrid}>
-              <KpiCard title="Users" value={counts.users.toLocaleString()} subtitle="Profiles in DB" />
-              <KpiCard title="Images" value={counts.images.toLocaleString()} subtitle="Uploaded assets" />
-              <KpiCard title="Captions" value={counts.captions.toLocaleString()} subtitle="Total caption rows" />
+              <KpiCard
+                title="Users"
+                value={counts.users.toLocaleString()}
+                subtitle="Profiles in DB"
+              />
+              <KpiCard
+                title="Images"
+                value={counts.images.toLocaleString()}
+                subtitle="Uploaded assets"
+              />
+              <KpiCard
+                title="Captions"
+                value={counts.captions.toLocaleString()}
+                subtitle="Total caption rows"
+              />
             </section>
 
             {/* Velocity + top users */}
@@ -193,12 +251,28 @@ export default function AdminPage() {
                   <span style={ui.pill}>Trend</span>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 18, marginTop: 10 }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.2fr 0.8fr",
+                    gap: 18,
+                    marginTop: 10,
+                  }}
+                >
                   <SparkBars points={last7} maxY={maxY} />
                   <div style={ui.metrics}>
-                    <Metric label="Avg length" value={`${Math.round(health.avgLen)} chars`} />
-                    <Metric label="Median" value={`${Math.round(health.medianLen)} chars`} />
-                    <Metric label="% ≥ 80 chars" value={`${health.pctLong.toFixed(1)}%`} />
+                    <Metric
+                      label="Avg length"
+                      value={`${Math.round(health.avgLen)} chars`}
+                    />
+                    <Metric
+                      label="Median"
+                      value={`${Math.round(health.medianLen)} chars`}
+                    />
+                    <Metric
+                      label="% ≥ 80 chars"
+                      value={`${health.pctLong.toFixed(1)}%`}
+                    />
                     <div style={ui.miniNote}>
                       Length-based “quality proxy” until vote-scoring exists.
                     </div>
@@ -221,8 +295,14 @@ export default function AdminPage() {
                       <div key={u.user_id} style={ui.row}>
                         <div style={ui.rank}>{idx + 1}</div>
                         <div style={{ minWidth: 0 }}>
-                          <div style={ui.rowTitle}>{u.email ?? u.user_id.slice(0, 8)}</div>
-                          <div style={ui.rowSub}><code style={ui.code}>{u.user_id.slice(0, 10)}…</code></div>
+                          <div style={ui.rowTitle}>
+                            {u.email ?? u.user_id.slice(0, 8)}
+                          </div>
+                          <div style={ui.rowSub}>
+                            <code style={ui.code}>
+                              {u.user_id.slice(0, 10)}…
+                            </code>
+                          </div>
                         </div>
                         <div style={ui.rowRight}>
                           <div style={ui.rowValue}>{u.caption_count}</div>
@@ -232,7 +312,10 @@ export default function AdminPage() {
                     ))}
                   </div>
                 ) : (
-                  <EmptyState title="No recent activity" body="No captions were created in the last 7 days." />
+                  <EmptyState
+                    title="No recent activity"
+                    body="No captions were created in the last 7 days."
+                  />
                 )}
               </div>
             </section>
@@ -251,7 +334,11 @@ export default function AdminPage() {
                 {topImages.length ? (
                   <div style={ui.imageGrid}>
                     {topImages.map((img) => (
-                      <div key={img.image_id} style={ui.imageTile} title={img.image_id}>
+                      <div
+                        key={img.image_id}
+                        style={ui.imageTile}
+                        title={img.image_id}
+                      >
                         <div style={ui.imageFrame}>
                           {img.url ? (
                             <img src={img.url} alt="" style={ui.img} />
@@ -263,13 +350,20 @@ export default function AdminPage() {
                           <div style={ui.imageCount}>
                             <b>{img.caption_count}</b> captions
                           </div>
-                          <div style={ui.imageId}><code style={ui.code}>{img.image_id.slice(0, 10)}…</code></div>
+                          <div style={ui.imageId}>
+                            <code style={ui.code}>
+                              {img.image_id.slice(0, 10)}…
+                            </code>
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <EmptyState title="No recent data" body="Once users create captions, this will populate automatically." />
+                  <EmptyState
+                    title="No recent data"
+                    body="Once users create captions, this will populate automatically."
+                  />
                 )}
               </div>
 
@@ -293,14 +387,20 @@ export default function AdminPage() {
                             {c.content.length > 150 ? "…" : ""}
                           </div>
                           <div style={ui.longMeta}>
-                            image <code style={ui.code}>{c.image_id.slice(0, 10)}…</code>
+                            image{" "}
+                            <code style={ui.code}>
+                              {c.image_id.slice(0, 10)}…
+                            </code>
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <EmptyState title="No recent captions" body="Create a few captions to unlock this section." />
+                  <EmptyState
+                    title="No recent captions"
+                    body="Create a few captions to unlock this section."
+                  />
                 )}
               </div>
             </section>
@@ -315,7 +415,15 @@ export default function AdminPage() {
   );
 }
 
-function KpiCard({ title, value, subtitle }: { title: string; value: string; subtitle: string }) {
+function KpiCard({
+  title,
+  value,
+  subtitle,
+}: {
+  title: string;
+  value: string;
+  subtitle: string;
+}) {
   return (
     <div style={ui.kpiCard}>
       <div style={ui.kpiTitle}>{title}</div>
@@ -342,7 +450,12 @@ function SparkBars({ points, maxY }: { points: DailyPoint[]; maxY: number }) {
         return (
           <div key={p.day} style={ui.sparkCol} title={`${p.day}: ${p.count}`}>
             <div style={ui.sparkTrack}>
-              <div style={{ ...ui.sparkFill, height: `${Math.max(4, h)}%` }} />
+              <div
+                style={{
+                  ...(ui.sparkFill as CSSProperties),
+                  height: `${Math.max(4, h)}%`,
+                }}
+              />
             </div>
             <div style={ui.sparkLabel}>{p.day.slice(5)}</div>
           </div>
@@ -372,19 +485,18 @@ function Background() {
   );
 }
 
-const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
-  fontFamily:
-    'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+const fontFamily =
+  'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"';
 
+const ui = {
   shell: {
     minHeight: "100vh",
     position: "relative",
     overflow: "hidden",
-    fontFamily:
-      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+    fontFamily,
     color: "white",
     background: "#06070a",
-  },
+  } satisfies CSSProperties,
 
   wrap: {
     position: "relative",
@@ -392,7 +504,7 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     maxWidth: 1180,
     margin: "0 auto",
     padding: "28px 22px 36px",
-  },
+  } satisfies CSSProperties,
 
   header: {
     display: "flex",
@@ -400,9 +512,13 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     justifyContent: "space-between",
     gap: 16,
     flexWrap: "wrap",
-  },
+  } satisfies CSSProperties,
 
-  kickerRow: { display: "flex", gap: 10, alignItems: "center" },
+  kickerRow: {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+  } satisfies CSSProperties,
 
   kicker: {
     display: "inline-flex",
@@ -415,7 +531,7 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     fontSize: 12,
     letterSpacing: 2,
     opacity: 0.95,
-  },
+  } satisfies CSSProperties,
 
   pill: {
     display: "inline-flex",
@@ -427,17 +543,17 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     fontWeight: 900,
     fontSize: 12,
     opacity: 0.85,
-  },
+  } satisfies CSSProperties,
 
   h1: {
     fontSize: 62,
     lineHeight: 0.95,
     letterSpacing: -2,
     margin: "14px 0 10px",
-    fontWeight: 1000 as any,
-  },
+    fontWeight: 1000,
+  } satisfies CSSProperties,
 
-  subline: { opacity: 0.8, fontSize: 15 },
+  subline: { opacity: 0.8, fontSize: 15 } satisfies CSSProperties,
 
   signout: {
     height: 44,
@@ -445,20 +561,21 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     borderRadius: 14,
     fontWeight: 950,
     border: "1px solid rgba(255,255,255,0.16)",
-    background: "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.08))",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.08))",
     color: "white",
     cursor: "pointer",
     boxShadow: "0 14px 30px rgba(0,0,0,0.35)",
     transform: "translateY(0px)",
     transition: "transform 120ms ease",
-  },
+  } satisfies CSSProperties,
 
   kpiGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 14,
     marginTop: 18,
-  },
+  } satisfies CSSProperties,
 
   kpiCard: {
     borderRadius: 20,
@@ -467,18 +584,18 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     background: "rgba(255,255,255,0.06)",
     boxShadow: "0 16px 60px rgba(0,0,0,0.35)",
     backdropFilter: "blur(10px)",
-  },
+  } satisfies CSSProperties,
 
-  kpiTitle: { opacity: 0.75, fontWeight: 900, fontSize: 14 },
-  kpiValue: { fontSize: 40, fontWeight: 1000 as any, marginTop: 8, letterSpacing: -1 },
-  kpiSub: { opacity: 0.7, marginTop: 4 },
+  kpiTitle: { opacity: 0.75, fontWeight: 900, fontSize: 14 } satisfies CSSProperties,
+  kpiValue: { fontSize: 40, fontWeight: 1000, marginTop: 8, letterSpacing: -1 } satisfies CSSProperties,
+  kpiSub: { opacity: 0.7, marginTop: 4 } satisfies CSSProperties,
 
   twoCol: {
     display: "grid",
     gridTemplateColumns: "1.6fr 1fr",
     gap: 14,
     marginTop: 14,
-  },
+  } satisfies CSSProperties,
 
   card: {
     borderRadius: 20,
@@ -487,22 +604,27 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     background: "rgba(255,255,255,0.05)",
     boxShadow: "0 16px 60px rgba(0,0,0,0.35)",
     backdropFilter: "blur(10px)",
-  },
+  } satisfies CSSProperties,
 
   cardHeader: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
-  },
+  } satisfies CSSProperties,
 
-  cardTitle: { fontWeight: 950, fontSize: 16 },
-  cardSub: { opacity: 0.7, fontSize: 12, marginTop: 4 },
+  cardTitle: { fontWeight: 950, fontSize: 16 } satisfies CSSProperties,
+  cardSub: { opacity: 0.7, fontSize: 12, marginTop: 4 } satisfies CSSProperties,
 
-  metrics: { paddingTop: 6 },
-  metricRow: { display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 8 },
+  metrics: { paddingTop: 6 } satisfies CSSProperties,
+  metricRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 8,
+  } satisfies CSSProperties,
 
-  miniNote: { marginTop: 10, opacity: 0.62, fontSize: 12, lineHeight: 1.45 },
+  miniNote: { marginTop: 10, opacity: 0.62, fontSize: 12, lineHeight: 1.45 } satisfies CSSProperties,
 
   sparkWrap: {
     display: "flex",
@@ -510,9 +632,9 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     alignItems: "flex-end",
     height: 150,
     padding: "6px 4px",
-  },
+  } satisfies CSSProperties,
 
-  sparkCol: { flex: 1, minWidth: 30 },
+  sparkCol: { flex: 1, minWidth: 30 } satisfies CSSProperties,
 
   sparkTrack: {
     height: 110,
@@ -522,20 +644,20 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     display: "flex",
     alignItems: "flex-end",
     overflow: "hidden",
-  },
+  } satisfies CSSProperties,
 
   sparkFill: {
     width: "100%",
     borderRadius: 14,
     background: "rgba(255,255,255,0.20)",
-  },
+  } satisfies CSSProperties,
 
   sparkLabel: {
     marginTop: 8,
     fontSize: 11,
     opacity: 0.6,
     textAlign: "center",
-  },
+  } satisfies CSSProperties,
 
   row: {
     display: "grid",
@@ -546,7 +668,7 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     borderRadius: 16,
     border: "1px solid rgba(255,255,255,0.10)",
     background: "rgba(255,255,255,0.03)",
-  },
+  } satisfies CSSProperties,
 
   rank: {
     width: 28,
@@ -558,42 +680,42 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     border: "1px solid rgba(255,255,255,0.12)",
     background: "rgba(255,255,255,0.06)",
     opacity: 0.9,
-  },
+  } satisfies CSSProperties,
 
   rowTitle: {
     fontWeight: 950,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-  },
+  } satisfies CSSProperties,
 
-  rowRight: { textAlign: "right" },
-  rowValue: { fontWeight: 1000 as any, fontSize: 18, letterSpacing: -0.5 },
-  rowSub: { opacity: 0.6, fontSize: 12 },
+  rowRight: { textAlign: "right" } satisfies CSSProperties,
+  rowValue: { fontWeight: 1000, fontSize: 18, letterSpacing: -0.5 } satisfies CSSProperties,
+  rowSub: { opacity: 0.6, fontSize: 12 } satisfies CSSProperties,
 
   imageGrid: {
     marginTop: 12,
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 12,
-  },
+  } satisfies CSSProperties,
 
   imageTile: {
     borderRadius: 18,
     overflow: "hidden",
     border: "1px solid rgba(255,255,255,0.12)",
     background: "rgba(255,255,255,0.03)",
-  },
+  } satisfies CSSProperties,
 
-  imageFrame: { aspectRatio: "1 / 1", background: "rgba(255,255,255,0.06)" },
+  imageFrame: { aspectRatio: "1 / 1", background: "rgba(255,255,255,0.06)" } satisfies CSSProperties,
 
-  img: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  img: { width: "100%", height: "100%", objectFit: "cover", display: "block" } satisfies CSSProperties,
 
-  imagePlaceholder: { height: "100%", display: "grid", placeItems: "center", opacity: 0.7 },
+  imagePlaceholder: { height: "100%", display: "grid", placeItems: "center", opacity: 0.7 } satisfies CSSProperties,
 
-  imageMeta: { padding: 10 },
-  imageCount: { fontSize: 12, opacity: 0.9 },
-  imageId: { marginTop: 6, opacity: 0.7, fontSize: 12 },
+  imageMeta: { padding: 10 } satisfies CSSProperties,
+  imageCount: { fontSize: 12, opacity: 0.9 } satisfies CSSProperties,
+  imageId: { marginTop: 6, opacity: 0.7, fontSize: 12 } satisfies CSSProperties,
 
   longRow: {
     display: "grid",
@@ -604,7 +726,7 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     borderRadius: 16,
     border: "1px solid rgba(255,255,255,0.10)",
     background: "rgba(255,255,255,0.03)",
-  },
+  } satisfies CSSProperties,
 
   longBadge: {
     padding: "6px 10px",
@@ -615,17 +737,17 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     fontSize: 12,
     opacity: 0.92,
     whiteSpace: "nowrap",
-  },
+  } satisfies CSSProperties,
 
-  longText: { fontWeight: 800, opacity: 0.95, lineHeight: 1.35 },
-  longMeta: { marginTop: 6, opacity: 0.65, fontSize: 12 },
+  longText: { fontWeight: 800, opacity: 0.95, lineHeight: 1.35 } satisfies CSSProperties,
+  longMeta: { marginTop: 6, opacity: 0.65, fontSize: 12 } satisfies CSSProperties,
 
   code: {
     fontFamily:
       'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
     fontSize: 12,
     opacity: 0.85,
-  },
+  } satisfies CSSProperties,
 
   empty: {
     marginTop: 12,
@@ -633,10 +755,10 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     borderRadius: 16,
     border: "1px solid rgba(255,255,255,0.10)",
     background: "rgba(255,255,255,0.03)",
-  },
+  } satisfies CSSProperties,
 
-  emptyTitle: { fontWeight: 950 },
-  emptyBody: { marginTop: 6, opacity: 0.7, fontSize: 13, lineHeight: 1.45 },
+  emptyTitle: { fontWeight: 950 } satisfies CSSProperties,
+  emptyBody: { marginTop: 6, opacity: 0.7, fontSize: 13, lineHeight: 1.45 } satisfies CSSProperties,
 
   loadingCard: {
     marginTop: 18,
@@ -646,20 +768,23 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     background: "rgba(255,255,255,0.06)",
     boxShadow: "0 16px 60px rgba(0,0,0,0.35)",
     backdropFilter: "blur(10px)",
-  },
+  } satisfies CSSProperties,
 
-  loadingTitle: { fontWeight: 950, fontSize: 16 },
-  loadingSub: { marginTop: 6, opacity: 0.7 },
+  loadingTitle: { fontWeight: 950, fontSize: 16 } satisfies CSSProperties,
+  loadingSub: { marginTop: 6, opacity: 0.7 } satisfies CSSProperties,
 
-  footer: { marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.08)" },
+  footer: {
+    marginTop: 18,
+    paddingTop: 14,
+    borderTop: "1px solid rgba(255,255,255,0.08)",
+  } satisfies CSSProperties,
 
-  // background
   bgGradient: {
     position: "absolute",
     inset: 0,
     background:
       "radial-gradient(1200px 700px at 10% 10%, rgba(120,140,255,0.22), transparent 55%), radial-gradient(900px 650px at 90% 20%, rgba(255,140,200,0.14), transparent 60%), radial-gradient(900px 650px at 30% 110%, rgba(0,255,180,0.10), transparent 55%)",
-  },
+  } satisfies CSSProperties,
 
   bgGlowA: {
     position: "absolute",
@@ -667,9 +792,10 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     height: 900,
     left: -320,
     top: -340,
-    background: "radial-gradient(circle, rgba(130,120,255,0.18), transparent 60%)",
+    background:
+      "radial-gradient(circle, rgba(130,120,255,0.18), transparent 60%)",
     filter: "blur(2px)",
-  },
+  } satisfies CSSProperties,
 
   bgGlowB: {
     position: "absolute",
@@ -677,9 +803,10 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     height: 900,
     right: -320,
     bottom: -380,
-    background: "radial-gradient(circle, rgba(255,120,200,0.14), transparent 60%)",
+    background:
+      "radial-gradient(circle, rgba(255,120,200,0.14), transparent 60%)",
     filter: "blur(2px)",
-  },
+  } satisfies CSSProperties,
 
   bgNoise: {
     position: "absolute",
@@ -689,5 +816,5 @@ const ui: Record<string, React.CSSProperties> & { fontFamily: string } = {
     opacity: 0.22,
     mixBlendMode: "overlay",
     pointerEvents: "none",
-  },
+  } satisfies CSSProperties,
 };
