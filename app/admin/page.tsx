@@ -1,291 +1,207 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
-/** ===== Types that match YOUR schema ===== */
+const IMAGE_BUCKET = "images";
+const PAGE_SIZE = 25;
 
-type Counts = { users: number; images: number; captions: number };
-type DailyPoint = { day: string; count: number };
-
-type ProfileRow = {
-  id: string;
-  email: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  is_superadmin: boolean | null;
-  is_in_study: boolean | null;
-  is_matrix_admin: boolean | null;
-  created_datetime_utc: string | null;
-  modified_datetime_utc: string | null;
+type Counts = {
+  users: number;
+  images: number;
+  captions: number;
 };
 
-type CaptionRow = {
-  id: string;
-  content: string | null;
-  like_count: number | null;
-  is_public: boolean | null;
-  profile_id: string | null;
-  image_id: string | null;
-  created_datetime_utc: string | null;
-  modified_datetime_utc: string | null;
+type TabKey =
+  | "dashboard"
+  | "users"
+  | "images"
+  | "humorFlavors"
+  | "humorFlavorSteps"
+  | "humorFlavorMix"
+  | "terms"
+  | "captions"
+  | "captionRequests"
+  | "captionExamples"
+  | "llmModels"
+  | "llmProviders"
+  | "llmPromptChains"
+  | "llmResponses"
+  | "allowedSignupDomains"
+  | "whitelistEmails";
+
+type GenericRow = Record<string, any>;
+
+const TAB_META: Record<
+  TabKey,
+  {
+    label: string;
+    table?: string;
+    mode: "dashboard" | "read" | "update" | "crud";
+  }
+> = {
+  dashboard: { label: "Dashboard", mode: "dashboard" },
+  users: { label: "Users", table: "profiles", mode: "read" },
+  images: { label: "Images", table: "images", mode: "crud" },
+  humorFlavors: { label: "Humor Flavors", table: "humor_flavors", mode: "read" },
+  humorFlavorSteps: { label: "Humor Flavor Steps", table: "humor_flavor_steps", mode: "read" },
+  humorFlavorMix: { label: "Humor Mix", table: "humor_flavor_mix", mode: "update" },
+  terms: { label: "Terms", table: "terms", mode: "crud" },
+  captions: { label: "Captions", table: "captions", mode: "read" },
+  captionRequests: { label: "Caption Requests", table: "caption_requests", mode: "read" },
+  captionExamples: { label: "Caption Examples", table: "caption_examples", mode: "crud" },
+  llmModels: { label: "LLM Models", table: "llm_models", mode: "crud" },
+  llmProviders: { label: "LLM Providers", table: "llm_providers", mode: "crud" },
+  llmPromptChains: { label: "LLM Prompt Chains", table: "llm_prompt_chains", mode: "read" },
+  llmResponses: { label: "LLM Responses", table: "llm_model_responses", mode: "read" },
+  allowedSignupDomains: {
+    label: "Allowed Signup Domains",
+    table: "allowed_signup_domains",
+    mode: "crud",
+  },
+  whitelistEmails: {
+    label: "Whitelist Emails",
+    table: "whitelist_email_addresses",
+    mode: "crud",
+  },
 };
 
-type ImageRow = {
-  id: string;
-  url: string | null;
-  is_public: boolean | null;
-  is_common_use: boolean | null;
-  profile_id: string | null;
-  created_datetime_utc: string | null;
-  modified_datetime_utc: string | null;
+type ImageForm = {
+  url: string;
+  is_public: boolean;
+  is_common_use: boolean;
+  additional_context: string;
+  image_description: string;
 };
 
-type Tab = "dashboard" | "users" | "captions" | "images";
+type HumorMixForm = {
+  caption_count: string;
+};
+
+type TermForm = {
+  term: string;
+  definition: string;
+  example: string;
+  priority: string;
+  term_type_id: string;
+};
+
+type CaptionExampleForm = {
+  image_description: string;
+  caption: string;
+  explanation: string;
+  priority: string;
+  image_id: string;
+};
+
+type LlmModelForm = {
+  name: string;
+  llm_provider_id: string;
+  provider_model_id: string;
+  is_temperature_supported: boolean;
+};
+
+type LlmProviderForm = {
+  name: string;
+};
+
+type AllowedDomainForm = {
+  apex_domain: string;
+};
+
+type WhitelistEmailForm = {
+  email_address: string;
+};
 
 export default function AdminPage() {
   const supabase = getSupabaseBrowserClient();
 
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<TabKey>("dashboard");
 
-  const [loading, setLoading] = useState(true);
+  const [loadingApp, setLoadingApp] = useState(true);
+  const [loadingRows, setLoadingRows] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState("");
 
-  const [email, setEmail] = useState<string>("");
-  const [myProfileId, setMyProfileId] = useState<string>("");
+  const [email, setEmail] = useState("");
+  const [myProfileId, setMyProfileId] = useState("");
 
-  /** ===== Dashboard state ===== */
   const [counts, setCounts] = useState<Counts>({ users: 0, images: 0, captions: 0 });
-  const [last7, setLast7] = useState<DailyPoint[]>([]);
-  const [topImages, setTopImages] = useState<{ image_id: string; url?: string; caption_count: number }[]>([]);
-  const [topUsers, setTopUsers] = useState<{ profile_id: string; email?: string; caption_count: number }[]>([]);
-  const [longest, setLongest] = useState<{ id: string; image_id: string; content: string; len: number }[]>([]);
-  const [health, setHealth] = useState<{ pctLong: number; avgLen: number; medianLen: number }>({
-    pctLong: 0,
-    avgLen: 0,
-    medianLen: 0,
-  });
 
-  /** ===== Users (READ) ===== */
-  const [users, setUsers] = useState<ProfileRow[]>([]);
-  const [usersPage, setUsersPage] = useState(0);
-  const [hasMoreUsers, setHasMoreUsers] = useState(false);
-  const USERS_PAGE_SIZE = 25;
+  const [rows, setRows] = useState<GenericRow[]>([]);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
-  /** ===== Captions (READ) ===== */
-  const [captions, setCaptions] = useState<CaptionRow[]>([]);
-  const [capPage, setCapPage] = useState(0);
-  const [hasMoreCaps, setHasMoreCaps] = useState(false);
-  const CAPS_PAGE_SIZE = 25;
-
-  const [capQuery, setCapQuery] = useState("");
-  const [capProfileFilter, setCapProfileFilter] = useState("");
-  const [capImageFilter, setCapImageFilter] = useState("");
-
-  /** ===== Images (CRUD) ===== */
-  const [images, setImages] = useState<ImageRow[]>([]);
-  const [imgPage, setImgPage] = useState(0);
-  const [hasMoreImages, setHasMoreImages] = useState(false);
-  const IMAGES_PAGE_SIZE = 25;
-
-  const [newImageUrl, setNewImageUrl] = useState("");
-  const [newImageIsPublic, setNewImageIsPublic] = useState(true);
-  const [newImageCommonUse, setNewImageCommonUse] = useState(false);
+  const [recentCaptionPoints, setRecentCaptionPoints] = useState<{ day: string; count: number }[]>([]);
+  const [topCaptioners, setTopCaptioners] = useState<{ label: string; count: number }[]>([]);
+  const [topImages, setTopImages] = useState<{ image_id: string; url?: string; count: number }[]>([]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingUrl, setEditingUrl] = useState("");
-  const [editingIsPublic, setEditingIsPublic] = useState<boolean>(true);
-  const [editingCommonUse, setEditingCommonUse] = useState<boolean>(false);
 
-  /** ===== Initial load: session + dashboard ===== */
+  const [imageCreate, setImageCreate] = useState<ImageForm>(blankImageForm());
+  const [imageEdit, setImageEdit] = useState<ImageForm>(blankImageForm());
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+  const [humorMixEdit, setHumorMixEdit] = useState<HumorMixForm>({ caption_count: "" });
+
+  const [termCreate, setTermCreate] = useState<TermForm>(blankTermForm());
+  const [termEdit, setTermEdit] = useState<TermForm>(blankTermForm());
+
+  const [captionExampleCreate, setCaptionExampleCreate] = useState<CaptionExampleForm>(blankCaptionExampleForm());
+  const [captionExampleEdit, setCaptionExampleEdit] = useState<CaptionExampleForm>(blankCaptionExampleForm());
+
+  const [llmModelCreate, setLlmModelCreate] = useState<LlmModelForm>(blankLlmModelForm());
+  const [llmModelEdit, setLlmModelEdit] = useState<LlmModelForm>(blankLlmModelForm());
+
+  const [llmProviderCreate, setLlmProviderCreate] = useState<LlmProviderForm>(blankLlmProviderForm());
+  const [llmProviderEdit, setLlmProviderEdit] = useState<LlmProviderForm>(blankLlmProviderForm());
+
+  const [allowedDomainCreate, setAllowedDomainCreate] = useState<AllowedDomainForm>(blankAllowedDomainForm());
+  const [allowedDomainEdit, setAllowedDomainEdit] = useState<AllowedDomainForm>(blankAllowedDomainForm());
+
+  const [whitelistCreate, setWhitelistCreate] = useState<WhitelistEmailForm>(blankWhitelistEmailForm());
+  const [whitelistEdit, setWhitelistEdit] = useState<WhitelistEmailForm>(blankWhitelistEmailForm());
+
+  const currentMeta = TAB_META[tab];
+  const visibleColumns = useMemo(() => deriveColumns(rows, tab), [rows, tab]);
+
   useEffect(() => {
-    const run = async () => {
-      setLoading(true);
-      setError("");
-
-      const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
-      if (sessErr) {
-        setError(sessErr.message);
-        setLoading(false);
-        return;
-      }
-
-      const session = sessionData.session;
-      setEmail(session?.user.email ?? "");
-      setMyProfileId(session?.user.id ?? "");
-
-      // counts (head:true)
-      const [u, i, c] = await Promise.all([
-        supabase.from("profiles").select("*", { count: "exact", head: true }),
-        supabase.from("images").select("*", { count: "exact", head: true }),
-        supabase.from("captions").select("*", { count: "exact", head: true }),
-      ]);
-
-      if (u.error || i.error || c.error) {
-        setError(u.error?.message || i.error?.message || c.error?.message || "Failed to load counts.");
-        setLoading(false);
-        return;
-      }
-
-      setCounts({
-        users: u.count ?? 0,
-        images: i.count ?? 0,
-        captions: c.count ?? 0,
-      });
-
-      // Dashboard: last 7 days caption activity
-      const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
-
-      const { data: recentCaps, error: capsErr } = await supabase
-        .from("captions")
-        .select("id,image_id,content,created_datetime_utc,profile_id")
-        .gte("created_datetime_utc", since)
-        .order("created_datetime_utc", { ascending: true })
-        .limit(5000);
-
-      if (capsErr) {
-        setError(capsErr.message);
-        setLoading(false);
-        return;
-      }
-
-      const caps = (recentCaps ?? []) as Array<{
-        id: string;
-        image_id: string | null;
-        content: string | null;
-        created_datetime_utc: string | null;
-        profile_id: string | null;
-      }>;
-
-      // by day
-      const byDay = new Map<string, number>();
-      for (const row of caps) {
-        if (!row.created_datetime_utc) continue;
-        const day = new Date(row.created_datetime_utc).toISOString().slice(0, 10);
-        byDay.set(day, (byDay.get(day) ?? 0) + 1);
-      }
-
-      const points: DailyPoint[] = [];
-      for (let d = 6; d >= 0; d--) {
-        const date = new Date(Date.now() - d * 24 * 3600 * 1000);
-        const day = date.toISOString().slice(0, 10);
-        points.push({ day, count: byDay.get(day) ?? 0 });
-      }
-      setLast7(points);
-
-      // caption length stats
-      const lens = caps
-        .map((x) => (x.content?.length ?? 0))
-        .filter((n) => n > 0)
-        .sort((a, b) => a - b);
-
-      const avgLen = lens.length ? lens.reduce((a, b) => a + b, 0) / lens.length : 0;
-      const medianLen = lens.length ? lens[Math.floor(lens.length / 2)] : 0;
-      const longThreshold = 80;
-      const pctLong = lens.length ? (lens.filter((n) => n >= longThreshold).length / lens.length) * 100 : 0;
-      setHealth({ pctLong, avgLen, medianLen });
-
-      // top images by captions (from recent caps)
-      const imgCounts = new Map<string, number>();
-      for (const row of caps) {
-        if (!row.image_id) continue;
-        imgCounts.set(row.image_id, (imgCounts.get(row.image_id) ?? 0) + 1);
-      }
-      const topImgIds = [...imgCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-
-      if (topImgIds.length) {
-        const { data: imgs, error: imgsErr } = await supabase
-          .from("images")
-          .select("id,url")
-          .in(
-            "id",
-            topImgIds.map(([id]) => id)
-          );
-
-        if (!imgsErr) {
-          const urlById = new Map((imgs ?? []).map((x: any) => [x.id, x.url]));
-          setTopImages(
-            topImgIds.map(([image_id, caption_count]) => ({
-              image_id,
-              caption_count,
-              url: urlById.get(image_id),
-            }))
-          );
-        } else {
-          // if RLS blocks images read, still show counts
-          setTopImages(topImgIds.map(([image_id, caption_count]) => ({ image_id, caption_count })));
-        }
-      } else {
-        setTopImages([]);
-      }
-
-      // top users (profiles) by captions (from recent caps)
-      const userCounts = new Map<string, number>();
-      for (const row of caps) {
-        if (!row.profile_id) continue;
-        userCounts.set(row.profile_id, (userCounts.get(row.profile_id) ?? 0) + 1);
-      }
-      const topUserIds = [...userCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-
-      if (topUserIds.length) {
-        const { data: profs, error: profErr } = await supabase
-          .from("profiles")
-          .select("id,email")
-          .in(
-            "id",
-            topUserIds.map(([id]) => id)
-          );
-
-        if (!profErr) {
-          const emailById = new Map((profs ?? []).map((x: any) => [x.id, x.email]));
-          setTopUsers(
-            topUserIds.map(([profile_id, caption_count]) => ({
-              profile_id,
-              caption_count,
-              email: emailById.get(profile_id) ?? undefined,
-            }))
-          );
-        } else {
-          // if RLS blocks profiles read, still show ids
-          setTopUsers(topUserIds.map(([profile_id, caption_count]) => ({ profile_id, caption_count })));
-        }
-      } else {
-        setTopUsers([]);
-      }
-
-      // longest captions (recent)
-      const longestLocal = [...caps]
-        .map((x) => ({
-          id: x.id,
-          image_id: x.image_id ?? "",
-          content: x.content ?? "",
-          len: (x.content ?? "").length,
-        }))
-        .sort((a, b) => b.len - a.len)
-        .slice(0, 6);
-      setLongest(longestLocal);
-
-      setLoading(false);
-    };
-
-    run();
+    void boot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** ===== Lazy-load lists on tab open / paging / filtering ===== */
   useEffect(() => {
-    if (loading) return;
+    if (loadingApp) return;
+
+    if (tab === "dashboard") {
+      void loadDashboard();
+      return;
+    }
+
+    void loadTable();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, page, loadingApp]);
+
+  async function boot() {
+    setLoadingApp(true);
     setError("");
 
-    if (tab === "users") void loadUsers();
-    if (tab === "captions") void loadCaptions();
-    if (tab === "images") void loadImages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, usersPage, capPage, capQuery, capProfileFilter, capImageFilter, imgPage]);
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
 
-  const maxY = useMemo(() => Math.max(1, ...last7.map((p) => p.count)), [last7]);
+    if (sessionError) {
+      setError(sessionError.message);
+      setLoadingApp(false);
+      return;
+    }
+
+    const session = sessionData.session;
+    setEmail(session?.user.email ?? "");
+    setMyProfileId(session?.user.id ?? "");
+
+    await refreshCountsOnly();
+    setLoadingApp(false);
+  }
 
   async function refreshCountsOnly() {
     const [u, i, c] = await Promise.all([
@@ -295,148 +211,311 @@ export default function AdminPage() {
     ]);
 
     setCounts({
-      users: u.count ?? counts.users,
-      images: i.count ?? counts.images,
-      captions: c.count ?? counts.captions,
+      users: u.count ?? 0,
+      images: i.count ?? 0,
+      captions: c.count ?? 0,
     });
   }
 
-  /** ===== Users (READ) - RLS-aware pagination ===== */
-  async function loadUsers() {
+  async function loadDashboard() {
     setError("");
-    const from = usersPage * USERS_PAGE_SIZE;
-    const to = from + USERS_PAGE_SIZE; // fetch 1 extra row
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id,email,first_name,last_name,is_superadmin,is_in_study,is_matrix_admin,created_datetime_utc,modified_datetime_utc")
-      .order("created_datetime_utc", { ascending: false })
-      .range(from, to);
+    const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
 
-    if (error) {
-      setError(error.message);
-      setUsers([]);
-      setHasMoreUsers(false);
-      return;
-    }
-
-    const rows = (data ?? []) as ProfileRow[];
-    setHasMoreUsers(rows.length > USERS_PAGE_SIZE);
-    setUsers(rows.slice(0, USERS_PAGE_SIZE));
-  }
-
-  /** ===== Captions (READ) - RLS-aware pagination ===== */
-  async function loadCaptions() {
-    setError("");
-    const from = capPage * CAPS_PAGE_SIZE;
-    const to = from + CAPS_PAGE_SIZE; // fetch 1 extra row
-
-    let q = supabase
+    const { data: caps, error: capsError } = await supabase
       .from("captions")
-      .select("id,content,like_count,is_public,profile_id,image_id,created_datetime_utc,modified_datetime_utc")
-      .order("created_datetime_utc", { ascending: false });
+      .select("id,profile_id,image_id,created_datetime_utc")
+      .gte("created_datetime_utc", since)
+      .order("created_datetime_utc", { ascending: true })
+      .limit(5000);
 
-    if (capProfileFilter.trim()) q = q.eq("profile_id", capProfileFilter.trim());
-    if (capImageFilter.trim()) q = q.eq("image_id", capImageFilter.trim());
-    if (capQuery.trim()) q = q.ilike("content", `%${capQuery.trim()}%`);
-
-    const { data, error } = await q.range(from, to);
-
-    if (error) {
-      setError(error.message);
-      setCaptions([]);
-      setHasMoreCaps(false);
+    if (capsError) {
+      setError(capsError.message);
       return;
     }
 
-    const rows = (data ?? []) as CaptionRow[];
-    setHasMoreCaps(rows.length > CAPS_PAGE_SIZE);
-    setCaptions(rows.slice(0, CAPS_PAGE_SIZE));
+    const captionRows = (caps ?? []) as Array<{
+      id: string;
+      profile_id: string | null;
+      image_id: string | null;
+      created_datetime_utc: string | null;
+    }>;
+
+    const byDay = new Map<string, number>();
+    for (const row of captionRows) {
+      if (!row.created_datetime_utc) continue;
+      const d = new Date(row.created_datetime_utc).toISOString().slice(0, 10);
+      byDay.set(d, (byDay.get(d) ?? 0) + 1);
+    }
+
+    const points: { day: string; count: number }[] = [];
+    for (let d = 6; d >= 0; d--) {
+      const date = new Date(Date.now() - d * 24 * 3600 * 1000).toISOString().slice(0, 10);
+      points.push({ day: date, count: byDay.get(date) ?? 0 });
+    }
+    setRecentCaptionPoints(points);
+
+    const userCountMap = new Map<string, number>();
+    const imageCountMap = new Map<string, number>();
+
+    for (const row of captionRows) {
+      if (row.profile_id) userCountMap.set(row.profile_id, (userCountMap.get(row.profile_id) ?? 0) + 1);
+      if (row.image_id) imageCountMap.set(row.image_id, (imageCountMap.get(row.image_id) ?? 0) + 1);
+    }
+
+    const topUserPairs = [...userCountMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const topImagePairs = [...imageCountMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+    if (topUserPairs.length) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id,email")
+        .in(
+          "id",
+          topUserPairs.map(([id]) => id)
+        );
+
+      const emailMap = new Map((profiles ?? []).map((p: any) => [String(p.id), p.email]));
+      setTopCaptioners(
+        topUserPairs.map(([id, count]) => ({
+          label: emailMap.get(id) ?? id.slice(0, 8),
+          count,
+        }))
+      );
+    } else {
+      setTopCaptioners([]);
+    }
+
+    if (topImagePairs.length) {
+      const { data: imgs } = await supabase
+        .from("images")
+        .select("id,url")
+        .in(
+          "id",
+          topImagePairs.map(([id]) => id)
+        );
+
+      const urlMap = new Map((imgs ?? []).map((img: any) => [String(img.id), img.url]));
+      setTopImages(
+        topImagePairs.map(([image_id, count]) => ({
+          image_id,
+          count,
+          url: urlMap.get(image_id),
+        }))
+      );
+    } else {
+      setTopImages([]);
+    }
   }
 
-  /** ===== Images (CRUD) - RLS-aware pagination ===== */
-  async function loadImages() {
+  async function loadTable() {
+    if (!currentMeta.table) return;
+
+    setLoadingRows(true);
     setError("");
-    const from = imgPage * IMAGES_PAGE_SIZE;
-    const to = from + IMAGES_PAGE_SIZE; // fetch 1 extra row
 
-    const { data, error } = await supabase
-      .from("images")
-      .select("id,url,is_public,is_common_use,profile_id,created_datetime_utc,modified_datetime_utc")
-      .order("created_datetime_utc", { ascending: false })
-      .range(from, to);
+    try {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE;
 
-    if (error) {
-      setError(error.message);
-      setImages([]);
-      setHasMoreImages(false);
+      let query = supabase.from(currentMeta.table).select("*");
+
+      if (hasColumnForOrdering(currentMeta.table)) {
+        query = query.order("created_datetime_utc", { ascending: false });
+      }
+
+      const { data, error } = await query.range(from, to);
+
+      if (error) throw error;
+
+      const fetched = (data ?? []) as GenericRow[];
+      setHasMore(fetched.length > PAGE_SIZE);
+      setRows(fetched.slice(0, PAGE_SIZE));
+    } catch (e: any) {
+      setRows([]);
+      setHasMore(false);
+      setError(e?.message ?? `Failed to load ${currentMeta.table}`);
+    } finally {
+      setLoadingRows(false);
+    }
+  }
+
+  function startEdit(row: GenericRow) {
+    setEditingId(String(row.id));
+
+    if (tab === "images") {
+      setImageEdit({
+        url: row.url ?? "",
+        is_public: !!row.is_public,
+        is_common_use: !!row.is_common_use,
+        additional_context: row.additional_context ?? "",
+        image_description: row.image_description ?? "",
+      });
       return;
     }
 
-    const rows = (data ?? []) as ImageRow[];
-    setHasMoreImages(rows.length > IMAGES_PAGE_SIZE);
-    setImages(rows.slice(0, IMAGES_PAGE_SIZE));
+    if (tab === "humorFlavorMix") {
+      setHumorMixEdit({
+        caption_count: row.caption_count == null ? "" : String(row.caption_count),
+      });
+      return;
+    }
+
+    if (tab === "terms") {
+      setTermEdit({
+        term: row.term ?? "",
+        definition: row.definition ?? "",
+        example: row.example ?? "",
+        priority: row.priority == null ? "" : String(row.priority),
+        term_type_id: row.term_type_id == null ? "" : String(row.term_type_id),
+      });
+      return;
+    }
+
+    if (tab === "captionExamples") {
+      setCaptionExampleEdit({
+        image_description: row.image_description ?? "",
+        caption: row.caption ?? "",
+        explanation: row.explanation ?? "",
+        priority: row.priority == null ? "" : String(row.priority),
+        image_id: row.image_id ?? "",
+      });
+      return;
+    }
+
+    if (tab === "llmModels") {
+      setLlmModelEdit({
+        name: row.name ?? "",
+        llm_provider_id: row.llm_provider_id == null ? "" : String(row.llm_provider_id),
+        provider_model_id: row.provider_model_id ?? "",
+        is_temperature_supported: !!row.is_temperature_supported,
+      });
+      return;
+    }
+
+    if (tab === "llmProviders") {
+      setLlmProviderEdit({ name: row.name ?? "" });
+      return;
+    }
+
+    if (tab === "allowedSignupDomains") {
+      setAllowedDomainEdit({ apex_domain: row.apex_domain ?? "" });
+      return;
+    }
+
+    if (tab === "whitelistEmails") {
+      setWhitelistEdit({ email_address: row.email_address ?? "" });
+    }
   }
 
-  async function createImage() {
+  function cancelEdit() {
+    setEditingId(null);
+    setImageEdit(blankImageForm());
+    setHumorMixEdit({ caption_count: "" });
+    setTermEdit(blankTermForm());
+    setCaptionExampleEdit(blankCaptionExampleForm());
+    setLlmModelEdit(blankLlmModelForm());
+    setLlmProviderEdit(blankLlmProviderForm());
+    setAllowedDomainEdit(blankAllowedDomainForm());
+    setWhitelistEdit(blankWhitelistEmailForm());
+  }
+
+  async function createImageRowFromUrl() {
     setBusy(true);
     setError("");
+
     try {
-      const url = newImageUrl.trim();
-      if (!url) throw new Error("URL is required.");
+      if (!imageCreate.url.trim()) throw new Error("Image URL is required.");
 
       const payload = {
-        url,
-        is_public: newImageIsPublic,
-        is_common_use: newImageCommonUse,
+        url: imageCreate.url.trim(),
+        is_public: imageCreate.is_public,
+        is_common_use: imageCreate.is_common_use,
+        additional_context: nullIfBlank(imageCreate.additional_context),
+        image_description: nullIfBlank(imageCreate.image_description),
         profile_id: myProfileId || null,
       };
 
       const { error } = await supabase.from("images").insert(payload);
       if (error) throw error;
 
-      setNewImageUrl("");
-      setNewImageIsPublic(true);
-      setNewImageCommonUse(false);
-
+      setImageCreate(blankImageForm());
       await refreshCountsOnly();
-      await loadImages();
+      await loadTable();
     } catch (e: any) {
-      setError(e?.message ?? "Failed to create image.");
+      setError(e?.message ?? "Failed to create image row.");
     } finally {
       setBusy(false);
     }
   }
 
-  function startEdit(img: ImageRow) {
-    setEditingId(img.id);
-    setEditingUrl(img.url ?? "");
-    setEditingIsPublic(!!img.is_public);
-    setEditingCommonUse(!!img.is_common_use);
-  }
-
-  async function saveEdit() {
-    if (!editingId) return;
+  async function uploadAndCreateImageRow() {
     setBusy(true);
     setError("");
+
     try {
-      const url = editingUrl.trim();
-      if (!url) throw new Error("URL cannot be empty.");
+      if (!uploadFile) throw new Error("Choose an image file first.");
 
-      const { error } = await supabase
-        .from("images")
-        .update({
-          url,
-          is_public: editingIsPublic,
-          is_common_use: editingCommonUse,
-        })
-        .eq("id", editingId);
+      const ext = getFileExtension(uploadFile.name);
+      const filePath = `${myProfileId || "anonymous"}/${Date.now()}-${slugifyBaseName(uploadFile.name)}.${ext}`;
 
+      const { error: uploadError } = await supabase.storage.from(IMAGE_BUCKET).upload(filePath, uploadFile, {
+        upsert: false,
+      });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(filePath);
+
+      const payload = {
+        url: publicData.publicUrl,
+        is_public: imageCreate.is_public,
+        is_common_use: imageCreate.is_common_use,
+        additional_context: nullIfBlank(imageCreate.additional_context),
+        image_description: nullIfBlank(imageCreate.image_description),
+        profile_id: myProfileId || null,
+      };
+
+      const { error: insertError } = await supabase.from("images").insert(payload);
+      if (insertError) throw insertError;
+
+      setUploadFile(null);
+      setImageCreate(blankImageForm());
+
+      const fileInput = document.getElementById("image-upload-input") as HTMLInputElement | null;
+      if (fileInput) fileInput.value = "";
+
+      await refreshCountsOnly();
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to upload image.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveImageEdit() {
+    if (!editingId) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const payload = {
+        url: imageEdit.url.trim(),
+        is_public: imageEdit.is_public,
+        is_common_use: imageEdit.is_common_use,
+        additional_context: nullIfBlank(imageEdit.additional_context),
+        image_description: nullIfBlank(imageEdit.image_description),
+      };
+
+      if (!payload.url) throw new Error("URL is required.");
+
+      const { error } = await supabase.from("images").update(payload).eq("id", editingId);
       if (error) throw error;
 
-      setEditingId(null);
-      setEditingUrl("");
-      await loadImages();
+      cancelEdit();
+      await loadTable();
     } catch (e: any) {
       setError(e?.message ?? "Failed to update image.");
     } finally {
@@ -444,24 +523,479 @@ export default function AdminPage() {
     }
   }
 
-  async function deleteImage(id: string) {
-    const ok = confirm("Delete this image row? (This deletes the DB row, not any external storage objects.)");
+  async function deleteImageRow(id: string) {
+    const ok = confirm("Delete this image row?");
     if (!ok) return;
 
     setBusy(true);
     setError("");
+
     try {
       const { error } = await supabase.from("images").delete().eq("id", id);
       if (error) throw error;
 
       await refreshCountsOnly();
-      await loadImages();
+      await loadTable();
     } catch (e: any) {
       setError(e?.message ?? "Failed to delete image.");
     } finally {
       setBusy(false);
     }
   }
+
+  async function saveHumorMixEdit() {
+    if (!editingId) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const count = parseOptionalInt(humorMixEdit.caption_count);
+      if (count == null) throw new Error("caption_count is required.");
+
+      const { error } = await supabase
+        .from("humor_flavor_mix")
+        .update({ caption_count: count })
+        .eq("id", Number(editingId));
+      if (error) throw error;
+
+      cancelEdit();
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update humor mix.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createTerm() {
+    setBusy(true);
+    setError("");
+
+    try {
+      if (!termCreate.term.trim()) throw new Error("term is required.");
+
+      const payload = {
+        term: termCreate.term.trim(),
+        definition: nullIfBlank(termCreate.definition),
+        example: nullIfBlank(termCreate.example),
+        priority: parseOptionalInt(termCreate.priority),
+        term_type_id: parseOptionalInt(termCreate.term_type_id),
+      };
+
+      const { error } = await supabase.from("terms").insert(payload);
+      if (error) throw error;
+
+      setTermCreate(blankTermForm());
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create term.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveTermEdit() {
+    if (!editingId) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const payload = {
+        term: termEdit.term.trim(),
+        definition: nullIfBlank(termEdit.definition),
+        example: nullIfBlank(termEdit.example),
+        priority: parseOptionalInt(termEdit.priority),
+        term_type_id: parseOptionalInt(termEdit.term_type_id),
+      };
+
+      if (!payload.term) throw new Error("term is required.");
+
+      const { error } = await supabase.from("terms").update(payload).eq("id", Number(editingId));
+      if (error) throw error;
+
+      cancelEdit();
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update term.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteTerm(id: string) {
+    const ok = confirm("Delete this term?");
+    if (!ok) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const { error } = await supabase.from("terms").delete().eq("id", Number(id));
+      if (error) throw error;
+
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete term.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createCaptionExample() {
+    setBusy(true);
+    setError("");
+
+    try {
+      const payload = {
+        image_description: nullIfBlank(captionExampleCreate.image_description),
+        caption: nullIfBlank(captionExampleCreate.caption),
+        explanation: nullIfBlank(captionExampleCreate.explanation),
+        priority: parseOptionalInt(captionExampleCreate.priority),
+        image_id: nullIfBlank(captionExampleCreate.image_id),
+      };
+
+      const { error } = await supabase.from("caption_examples").insert(payload);
+      if (error) throw error;
+
+      setCaptionExampleCreate(blankCaptionExampleForm());
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create caption example.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveCaptionExampleEdit() {
+    if (!editingId) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const payload = {
+        image_description: nullIfBlank(captionExampleEdit.image_description),
+        caption: nullIfBlank(captionExampleEdit.caption),
+        explanation: nullIfBlank(captionExampleEdit.explanation),
+        priority: parseOptionalInt(captionExampleEdit.priority),
+        image_id: nullIfBlank(captionExampleEdit.image_id),
+      };
+
+      const { error } = await supabase.from("caption_examples").update(payload).eq("id", Number(editingId));
+      if (error) throw error;
+
+      cancelEdit();
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update caption example.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteCaptionExample(id: string) {
+    const ok = confirm("Delete this caption example?");
+    if (!ok) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const { error } = await supabase.from("caption_examples").delete().eq("id", Number(id));
+      if (error) throw error;
+
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete caption example.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createLlmModel() {
+    setBusy(true);
+    setError("");
+
+    try {
+      if (!llmModelCreate.name.trim()) throw new Error("name is required.");
+
+      const providerId = parseOptionalInt(llmModelCreate.llm_provider_id);
+      if (providerId == null) throw new Error("llm_provider_id is required.");
+
+      const payload = {
+        name: llmModelCreate.name.trim(),
+        llm_provider_id: providerId,
+        provider_model_id: nullIfBlank(llmModelCreate.provider_model_id),
+        is_temperature_supported: llmModelCreate.is_temperature_supported,
+      };
+
+      const { error } = await supabase.from("llm_models").insert(payload);
+      if (error) throw error;
+
+      setLlmModelCreate(blankLlmModelForm());
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create LLM model.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveLlmModelEdit() {
+    if (!editingId) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const providerId = parseOptionalInt(llmModelEdit.llm_provider_id);
+      if (providerId == null) throw new Error("llm_provider_id is required.");
+      if (!llmModelEdit.name.trim()) throw new Error("name is required.");
+
+      const payload = {
+        name: llmModelEdit.name.trim(),
+        llm_provider_id: providerId,
+        provider_model_id: nullIfBlank(llmModelEdit.provider_model_id),
+        is_temperature_supported: llmModelEdit.is_temperature_supported,
+      };
+
+      const { error } = await supabase.from("llm_models").update(payload).eq("id", Number(editingId));
+      if (error) throw error;
+
+      cancelEdit();
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update LLM model.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteLlmModel(id: string) {
+    const ok = confirm("Delete this LLM model?");
+    if (!ok) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const { error } = await supabase.from("llm_models").delete().eq("id", Number(id));
+      if (error) throw error;
+
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete LLM model.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createLlmProvider() {
+    setBusy(true);
+    setError("");
+
+    try {
+      if (!llmProviderCreate.name.trim()) throw new Error("name is required.");
+
+      const { error } = await supabase.from("llm_providers").insert({
+        name: llmProviderCreate.name.trim(),
+      });
+
+      if (error) throw error;
+
+      setLlmProviderCreate(blankLlmProviderForm());
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create LLM provider.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveLlmProviderEdit() {
+    if (!editingId) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      if (!llmProviderEdit.name.trim()) throw new Error("name is required.");
+
+      const { error } = await supabase
+        .from("llm_providers")
+        .update({ name: llmProviderEdit.name.trim() })
+        .eq("id", Number(editingId));
+
+      if (error) throw error;
+
+      cancelEdit();
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update LLM provider.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteLlmProvider(id: string) {
+    const ok = confirm("Delete this LLM provider?");
+    if (!ok) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const { error } = await supabase.from("llm_providers").delete().eq("id", Number(id));
+      if (error) throw error;
+
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete LLM provider.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createAllowedDomain() {
+    setBusy(true);
+    setError("");
+
+    try {
+      if (!allowedDomainCreate.apex_domain.trim()) throw new Error("apex_domain is required.");
+
+      const { error } = await supabase.from("allowed_signup_domains").insert({
+        apex_domain: allowedDomainCreate.apex_domain.trim(),
+      });
+
+      if (error) throw error;
+
+      setAllowedDomainCreate(blankAllowedDomainForm());
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create allowed domain.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAllowedDomainEdit() {
+    if (!editingId) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      if (!allowedDomainEdit.apex_domain.trim()) throw new Error("apex_domain is required.");
+
+      const { error } = await supabase
+        .from("allowed_signup_domains")
+        .update({ apex_domain: allowedDomainEdit.apex_domain.trim() })
+        .eq("id", Number(editingId));
+
+      if (error) throw error;
+
+      cancelEdit();
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update allowed domain.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteAllowedDomain(id: string) {
+    const ok = confirm("Delete this allowed signup domain?");
+    if (!ok) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const { error } = await supabase.from("allowed_signup_domains").delete().eq("id", Number(id));
+      if (error) throw error;
+
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete allowed domain.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createWhitelistEmail() {
+    setBusy(true);
+    setError("");
+
+    try {
+      if (!whitelistCreate.email_address.trim()) throw new Error("email_address is required.");
+
+      const { error } = await supabase.from("whitelist_email_addresses").insert({
+        email_address: whitelistCreate.email_address.trim(),
+      });
+
+      if (error) throw error;
+
+      setWhitelistCreate(blankWhitelistEmailForm());
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create whitelist email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveWhitelistEmailEdit() {
+    if (!editingId) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      if (!whitelistEdit.email_address.trim()) throw new Error("email_address is required.");
+
+      const { error } = await supabase
+        .from("whitelist_email_addresses")
+        .update({ email_address: whitelistEdit.email_address.trim() })
+        .eq("id", Number(editingId));
+
+      if (error) throw error;
+
+      cancelEdit();
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update whitelist email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteWhitelistEmail(id: string) {
+    const ok = confirm("Delete this whitelist email?");
+    if (!ok) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const { error } = await supabase.from("whitelist_email_addresses").delete().eq("id", Number(id));
+      if (error) throw error;
+
+      await loadTable();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete whitelist email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    window.location.replace("/");
+  }
+
+  const maxChartY = Math.max(1, ...recentCaptionPoints.map((x) => x.count));
 
   return (
     <main style={ui.shell}>
@@ -472,532 +1006,1506 @@ export default function AdminPage() {
           <div>
             <div style={ui.kickerRow}>
               <span style={ui.kicker}>ADMIN</span>
-              <span style={ui.pill}>Manage + stats</span>
+              <span style={ui.pill}>Full schema panel</span>
             </div>
 
-            <h1 style={ui.h1}>Admin Panel</h1>
+            <h1 style={ui.h1}>Admin Area</h1>
             <div style={ui.subline}>
               Signed in as <b style={{ opacity: 0.95 }}>{email || "unknown"}</b>
             </div>
-
-            <nav style={ui.tabs}>
-              <TabButton active={tab === "dashboard"} onClick={() => setTab("dashboard")}>
-                Dashboard
-              </TabButton>
-              <TabButton
-                active={tab === "users"}
-                onClick={() => {
-                  setUsersPage(0);
-                  setTab("users");
-                }}
-              >
-                Users (READ)
-              </TabButton>
-              <TabButton
-                active={tab === "captions"}
-                onClick={() => {
-                  setCapPage(0);
-                  setTab("captions");
-                }}
-              >
-                Captions (READ)
-              </TabButton>
-              <TabButton
-                active={tab === "images"}
-                onClick={() => {
-                  setImgPage(0);
-                  setTab("images");
-                }}
-              >
-                Images (CRUD)
-              </TabButton>
-            </nav>
           </div>
 
-          <button
-            onClick={async () => {
-              await supabase.auth.signOut();
-              window.location.replace("/");
-            }}
-            style={ui.signout}
-            disabled={busy}
-          >
-            Sign out <span style={{ opacity: 0.7 }}>→</span>
+          <button onClick={signOut} style={ui.signout} disabled={busy}>
+            Sign out →
           </button>
         </header>
 
         {error ? (
           <div style={ui.errorCard}>
             <div style={{ fontWeight: 950 }}>Error</div>
-            <div style={{ marginTop: 6, opacity: 0.85, lineHeight: 1.4 }}>{error}</div>
-            <div style={{ marginTop: 10, opacity: 0.65, fontSize: 12, lineHeight: 1.4 }}>
-              If this is an RLS error, the code is fine — your policies are blocking access for this user.
-              (You said we can’t change RLS, so the only fix would be logging in as a role/user that has access.)
-            </div>
+            <div style={{ marginTop: 8, opacity: 0.9, lineHeight: 1.45 }}>{error}</div>
           </div>
         ) : null}
 
-        {loading ? (
+        <section style={ui.kpiGrid}>
+          <KpiCard title="Users" value={counts.users.toLocaleString()} subtitle="profiles rows" />
+          <KpiCard title="Images" value={counts.images.toLocaleString()} subtitle="images rows" />
+          <KpiCard title="Captions" value={counts.captions.toLocaleString()} subtitle="captions rows" />
+        </section>
+
+        <section style={ui.card}>
+          <div style={ui.cardTitle}>Sections</div>
+          <div style={ui.cardSub}>All assignment requirements are included below.</div>
+
+          <nav style={ui.tabs}>
+            {(Object.keys(TAB_META) as TabKey[]).map((key) => (
+              <TabButton
+                key={key}
+                active={tab === key}
+                onClick={() => {
+                  setPage(0);
+                  cancelEdit();
+                  setTab(key);
+                }}
+              >
+                {TAB_META[key].label}
+              </TabButton>
+            ))}
+          </nav>
+        </section>
+
+        {loadingApp ? (
           <div style={ui.loadingCard}>
             <div style={ui.loadingTitle}>Loading…</div>
-            <div style={ui.loadingSub}>Fetching counts and activity.</div>
+            <div style={ui.loadingSub}>Fetching session and counts.</div>
           </div>
-        ) : (
+        ) : null}
+
+        {!loadingApp && tab === "dashboard" ? (
           <>
-            {/* KPI row always visible */}
-            <section style={ui.kpiGrid}>
-              <KpiCard title="Users" value={counts.users.toLocaleString()} subtitle="profiles rows" />
-              <KpiCard title="Images" value={counts.images.toLocaleString()} subtitle="images rows" />
-              <KpiCard title="Captions" value={counts.captions.toLocaleString()} subtitle="captions rows" />
+            <section style={ui.twoCol}>
+              <div style={ui.card}>
+                <div style={ui.cardHeader}>
+                  <div>
+                    <div style={ui.cardTitle}>Caption velocity</div>
+                    <div style={ui.cardSub}>Last 7 days</div>
+                  </div>
+                  <span style={ui.pill}>Trend</span>
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <SparkBars points={recentCaptionPoints} maxY={maxChartY} />
+                </div>
+              </div>
+
+              <div style={ui.card}>
+                <div style={ui.cardHeader}>
+                  <div>
+                    <div style={ui.cardTitle}>Top captioners</div>
+                    <div style={ui.cardSub}>Last 7 days</div>
+                  </div>
+                  <span style={ui.pill}>Leaders</span>
+                </div>
+
+                {topCaptioners.length ? (
+                  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                    {topCaptioners.map((u, idx) => (
+                      <div key={u.label + idx} style={ui.row}>
+                        <div style={ui.rank}>{idx + 1}</div>
+                        <div style={ui.rowTitle}>{u.label}</div>
+                        <div style={ui.rowRight}>
+                          <div style={ui.rowValue}>{u.count}</div>
+                          <div style={ui.rowSub}>captions</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState title="No recent activity" body="No captions in the last 7 days." />
+                )}
+              </div>
             </section>
 
-            {tab === "dashboard" ? (
+            <section style={ui.card}>
+              <div style={ui.cardHeader}>
+                <div>
+                  <div style={ui.cardTitle}>Most captioned images</div>
+                  <div style={ui.cardSub}>Last 7 days</div>
+                </div>
+                <span style={ui.pill}>Hot</span>
+              </div>
+
+              {topImages.length ? (
+                <div style={ui.imageGrid}>
+                  {topImages.map((img) => (
+                    <div key={img.image_id} style={ui.imageTile}>
+                      <div style={ui.imageFrame}>
+                        {img.url ? <img src={img.url} alt="" style={ui.img} /> : <div style={ui.imagePlaceholder}>No URL</div>}
+                      </div>
+                      <div style={ui.imageMeta}>
+                        <div style={ui.imageCount}>
+                          <b>{img.count}</b> captions
+                        </div>
+                        <div style={ui.imageId}>
+                          <code style={ui.code}>{img.image_id.slice(0, 10)}…</code>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState title="No recent data" body="Once users create captions, this section will populate." />
+              )}
+            </section>
+          </>
+        ) : null}
+
+        {!loadingApp && tab !== "dashboard" ? (
+          <section style={ui.card}>
+            <div style={ui.cardHeader}>
+              <div>
+                <div style={ui.cardTitle}>{currentMeta.label}</div>
+                <div style={ui.cardSub}>
+                  Table: <code style={ui.code}>{currentMeta.table}</code> · Mode:{" "}
+                  <code style={ui.code}>{currentMeta.mode}</code>
+                </div>
+              </div>
+
+              <Pager
+                page={page}
+                onPrev={() => setPage((p) => Math.max(0, p - 1))}
+                onNext={() => setPage((p) => p + 1)}
+                canPrev={page > 0}
+                canNext={hasMore}
+              />
+            </div>
+
+            {tab === "images" ? (
               <>
-                <section style={ui.twoCol}>
-                  <div style={ui.card}>
-                    <div style={ui.cardHeader}>
-                      <div>
-                        <div style={ui.cardTitle}>Caption velocity</div>
-                        <div style={ui.cardSub}>Last 7 days (created_datetime_utc)</div>
-                      </div>
-                      <span style={ui.pill}>Trend</span>
-                    </div>
+                <div style={ui.formSection}>
+                  <div style={ui.formTitle}>Create image row from URL</div>
+                  <div style={ui.formGrid2}>
+                    <Field label="URL">
+                      <input
+                        value={imageCreate.url}
+                        onChange={(e) => setImageCreate((s) => ({ ...s, url: e.target.value }))}
+                        style={ui.input}
+                        placeholder="https://..."
+                      />
+                    </Field>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 18, marginTop: 10 }}>
-                      <SparkBars points={last7} maxY={maxY} />
-                      <div style={ui.metrics}>
-                        <Metric label="Avg length" value={`${Math.round(health.avgLen)} chars`} />
-                        <Metric label="Median" value={`${Math.round(health.medianLen)} chars`} />
-                        <Metric label="% ≥ 80 chars" value={`${health.pctLong.toFixed(1)}%`} />
-                        <div style={ui.miniNote}>Length-based “quality proxy”.</div>
-                      </div>
+                    <Field label="Additional context">
+                      <input
+                        value={imageCreate.additional_context}
+                        onChange={(e) => setImageCreate((s) => ({ ...s, additional_context: e.target.value }))}
+                        style={ui.input}
+                        placeholder="optional"
+                      />
+                    </Field>
+
+                    <Field label="Image description">
+                      <textarea
+                        value={imageCreate.image_description}
+                        onChange={(e) => setImageCreate((s) => ({ ...s, image_description: e.target.value }))}
+                        style={ui.textareaSmall}
+                        placeholder="optional"
+                      />
+                    </Field>
+
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <label style={ui.checkRow}>
+                        <input
+                          type="checkbox"
+                          checked={imageCreate.is_public}
+                          onChange={(e) => setImageCreate((s) => ({ ...s, is_public: e.target.checked }))}
+                        />
+                        <span>is_public</span>
+                      </label>
+                      <label style={ui.checkRow}>
+                        <input
+                          type="checkbox"
+                          checked={imageCreate.is_common_use}
+                          onChange={(e) => setImageCreate((s) => ({ ...s, is_common_use: e.target.checked }))}
+                        />
+                        <span>is_common_use</span>
+                      </label>
                     </div>
                   </div>
 
-                  <div style={ui.card}>
-                    <div style={ui.cardHeader}>
-                      <div>
-                        <div style={ui.cardTitle}>Top captioners</div>
-                        <div style={ui.cardSub}>Last 7 days</div>
-                      </div>
-                      <span style={ui.pill}>Leaders</span>
-                    </div>
-
-                    {topUsers.length ? (
-                      <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-                        {topUsers.map((u, idx) => (
-                          <div key={u.profile_id} style={ui.row}>
-                            <div style={ui.rank}>{idx + 1}</div>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={ui.rowTitle}>{u.email ?? u.profile_id.slice(0, 8)}</div>
-                              <div style={ui.rowSub}>
-                                <code style={ui.code}>{u.profile_id.slice(0, 10)}…</code>
-                              </div>
-                            </div>
-                            <div style={ui.rowRight}>
-                              <div style={ui.rowValue}>{u.caption_count}</div>
-                              <div style={ui.rowSub}>captions</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <EmptyState title="No recent activity" body="No captions were created in the last 7 days." />
-                    )}
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button onClick={createImageRowFromUrl} style={ui.primaryBtn} disabled={busy}>
+                      Create image row
+                    </button>
                   </div>
-                </section>
+                </div>
 
-                <section style={ui.twoCol}>
-                  <div style={ui.card}>
-                    <div style={ui.cardHeader}>
-                      <div>
-                        <div style={ui.cardTitle}>Most captioned images</div>
-                        <div style={ui.cardSub}>Last 7 days</div>
-                      </div>
-                      <span style={ui.pill}>Hot</span>
-                    </div>
-
-                    {topImages.length ? (
-                      <div style={ui.imageGrid}>
-                        {topImages.map((img) => (
-                          <div key={img.image_id} style={ui.imageTile} title={img.image_id}>
-                            <div style={ui.imageFrame}>
-                              {img.url ? (
-                                <img src={img.url} alt="" style={ui.img} />
-                              ) : (
-                                <div style={ui.imagePlaceholder}>No URL (maybe RLS)</div>
-                              )}
-                            </div>
-                            <div style={ui.imageMeta}>
-                              <div style={ui.imageCount}>
-                                <b>{img.caption_count}</b> captions
-                              </div>
-                              <div style={ui.imageId}>
-                                <code style={ui.code}>{img.image_id.slice(0, 10)}…</code>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <EmptyState title="No recent data" body="Once users create captions, this will populate automatically." />
-                    )}
+                <div style={ui.formSection}>
+                  <div style={ui.formTitle}>Upload new image to Storage bucket "{IMAGE_BUCKET}"</div>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      id="image-upload-input"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                    />
+                    <button onClick={uploadAndCreateImageRow} style={ui.primaryBtn} disabled={busy}>
+                      Upload + create row
+                    </button>
                   </div>
-
-                  <div style={ui.card}>
-                    <div style={ui.cardHeader}>
-                      <div>
-                        <div style={ui.cardTitle}>Longest captions</div>
-                        <div style={ui.cardSub}>Last 7 days</div>
-                      </div>
-                      <span style={ui.pill}>Fun</span>
-                    </div>
-
-                    {longest.length ? (
-                      <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
-                        {longest.map((c) => (
-                          <div key={c.id} style={ui.longRow}>
-                            <div style={ui.longBadge}>{c.len} chars</div>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={ui.longText}>
-                                {c.content.slice(0, 150)}
-                                {c.content.length > 150 ? "…" : ""}
-                              </div>
-                              <div style={ui.longMeta}>
-                                image <code style={ui.code}>{(c.image_id || "").slice(0, 10)}…</code>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <EmptyState title="No recent captions" body="Create a few captions to unlock this section." />
-                    )}
-                  </div>
-                </section>
+                </div>
               </>
             ) : null}
 
-            {tab === "users" ? (
-              <section style={ui.card}>
-                <div style={ui.cardHeader}>
-                  <div>
-                    <div style={ui.cardTitle}>Users / Profiles</div>
-                    <div style={ui.cardSub}>READ-only</div>
-                  </div>
-                  <Pager
-                    page={usersPage}
-                    onPrev={() => setUsersPage((p) => Math.max(0, p - 1))}
-                    onNext={() => setUsersPage((p) => p + 1)}
-                    canPrev={usersPage > 0}
-                    canNext={hasMoreUsers}
-                  />
+            {tab === "humorFlavorMix" && editingId ? (
+              <div style={ui.formSection}>
+                <div style={ui.formTitle}>
+                  Edit humor mix row <code style={ui.code}>{editingId}</code>
                 </div>
 
-                <Table>
-                  <thead>
-                    <tr>
-                      <Th>Email</Th>
-                      <Th>Name</Th>
-                      <Th>Flags</Th>
-                      <Th>Created</Th>
-                      <Th>ID</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.length ? (
-                      users.map((u) => (
-                        <tr key={u.id}>
-                          <Td>{u.email ?? <span style={{ opacity: 0.6 }}>—</span>}</Td>
-                          <Td>
-                            {u.first_name || u.last_name ? (
-                              <span>
-                                {u.first_name ?? ""} {u.last_name ?? ""}
-                              </span>
-                            ) : (
-                              <span style={{ opacity: 0.6 }}>—</span>
-                            )}
-                          </Td>
-                          <Td>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              <PillSmall on={!!u.is_superadmin} label="superadmin" />
-                              <PillSmall on={!!u.is_matrix_admin} label="matrix" />
-                              <PillSmall on={!!u.is_in_study} label="study" />
-                            </div>
-                          </Td>
-                          <Td>{u.created_datetime_utc ? new Date(u.created_datetime_utc).toLocaleString() : <span style={{ opacity: 0.6 }}>—</span>}</Td>
-                          <Td>
-                            <code style={ui.code}>{u.id.slice(0, 10)}…</code>
-                          </Td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <Td colSpan={5}>
-                          <EmptyState title="No rows visible" body="RLS likely restricts you to viewing only your own profile (or none)." />
-                        </Td>
-                      </tr>
-                    )}
-                  </tbody>
-                </Table>
-              </section>
-            ) : null}
-
-            {tab === "captions" ? (
-              <section style={ui.card}>
-                <div style={ui.cardHeader}>
-                  <div>
-                    <div style={ui.cardTitle}>Captions</div>
-                    <div style={ui.cardSub}>READ-only (filter + paginate)</div>
-                  </div>
-                  <Pager
-                    page={capPage}
-                    onPrev={() => setCapPage((p) => Math.max(0, p - 1))}
-                    onNext={() => setCapPage((p) => p + 1)}
-                    canPrev={capPage > 0}
-                    canNext={hasMoreCaps}
-                  />
-                </div>
-
-                <div style={ui.filters}>
-                  <input
-                    value={capQuery}
-                    onChange={(e) => {
-                      setCapPage(0);
-                      setCapQuery(e.target.value);
-                    }}
-                    placeholder="Search caption text…"
-                    style={ui.input}
-                  />
-                  <input
-                    value={capProfileFilter}
-                    onChange={(e) => {
-                      setCapPage(0);
-                      setCapProfileFilter(e.target.value);
-                    }}
-                    placeholder="Filter by profile_id…"
-                    style={ui.input}
-                  />
-                  <input
-                    value={capImageFilter}
-                    onChange={(e) => {
-                      setCapPage(0);
-                      setCapImageFilter(e.target.value);
-                    }}
-                    placeholder="Filter by image_id…"
-                    style={ui.input}
-                  />
-                </div>
-
-                <Table>
-                  <thead>
-                    <tr>
-                      <Th>Created</Th>
-                      <Th>Caption</Th>
-                      <Th>Likes</Th>
-                      <Th>Public</Th>
-                      <Th>Profile</Th>
-                      <Th>Image</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {captions.length ? (
-                      captions.map((c) => (
-                        <tr key={c.id}>
-                          <Td>{c.created_datetime_utc ? new Date(c.created_datetime_utc).toLocaleString() : <span style={{ opacity: 0.6 }}>—</span>}</Td>
-                          <Td>
-                            <div style={{ maxWidth: 520, lineHeight: 1.35 }}>
-                              {(c.content ?? "").slice(0, 220)}
-                              {(c.content ?? "").length > 220 ? "…" : ""}
-                            </div>
-                            <div style={{ marginTop: 6, opacity: 0.6 }}>
-                              <code style={ui.code}>{c.id.slice(0, 10)}…</code>
-                            </div>
-                          </Td>
-                          <Td>{c.like_count ?? 0}</Td>
-                          <Td>{c.is_public ? "Yes" : "No"}</Td>
-                          <Td>{c.profile_id ? <code style={ui.code}>{c.profile_id.slice(0, 10)}…</code> : <span style={{ opacity: 0.6 }}>—</span>}</Td>
-                          <Td>{c.image_id ? <code style={ui.code}>{c.image_id.slice(0, 10)}…</code> : <span style={{ opacity: 0.6 }}>—</span>}</Td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <Td colSpan={6}>
-                          <EmptyState title="No rows visible" body="No captions match your filters, or RLS limits the rows you can read." />
-                        </Td>
-                      </tr>
-                    )}
-                  </tbody>
-                </Table>
-              </section>
-            ) : null}
-
-            {tab === "images" ? (
-              <section style={ui.card}>
-                <div style={ui.cardHeader}>
-                  <div>
-                    <div style={ui.cardTitle}>Images</div>
-                    <div style={ui.cardSub}>CREATE / READ / UPDATE / DELETE</div>
-                  </div>
-                  <Pager
-                    page={imgPage}
-                    onPrev={() => setImgPage((p) => Math.max(0, p - 1))}
-                    onNext={() => setImgPage((p) => p + 1)}
-                    canPrev={imgPage > 0}
-                    canNext={hasMoreImages}
-                  />
-                </div>
-
-                {/* CREATE */}
-                <div style={ui.createBox}>
-                  <div style={{ fontWeight: 950, marginBottom: 10 }}>Create image row</div>
-                  <div style={ui.createRow}>
+                <div style={ui.formGrid1}>
+                  <Field label="caption_count">
                     <input
-                      value={newImageUrl}
-                      onChange={(e) => setNewImageUrl(e.target.value)}
-                      placeholder="Image URL (required)"
+                      value={humorMixEdit.caption_count}
+                      onChange={(e) => setHumorMixEdit({ caption_count: e.target.value })}
                       style={ui.input}
-                      disabled={busy}
                     />
-                    <label style={ui.checkRow}>
-                      <input type="checkbox" checked={newImageIsPublic} onChange={(e) => setNewImageIsPublic(e.target.checked)} disabled={busy} />
-                      <span>is_public</span>
-                    </label>
-                    <label style={ui.checkRow}>
-                      <input type="checkbox" checked={newImageCommonUse} onChange={(e) => setNewImageCommonUse(e.target.checked)} disabled={busy} />
-                      <span>is_common_use</span>
-                    </label>
-                    <button onClick={createImage} style={ui.primaryBtn} disabled={busy}>
-                      {busy ? "Working…" : "Create"}
-                    </button>
-                  </div>
-                  <div style={ui.miniNote}>
-                    Inserts into <code style={ui.code}>images</code> with{" "}
-                    <code style={ui.code}>profile_id = {myProfileId ? myProfileId.slice(0, 8) + "…" : "null"}</code>.
-                  </div>
+                  </Field>
                 </div>
 
-                {/* READ + UPDATE + DELETE */}
-                <Table>
-                  <thead>
-                    <tr>
-                      <Th>Preview</Th>
-                      <Th>URL</Th>
-                      <Th>Public</Th>
-                      <Th>Common</Th>
-                      <Th>Created</Th>
-                      <Th>Actions</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {images.length ? (
-                      images.map((img) => {
-                        const isEditing = editingId === img.id;
-                        return (
-                          <tr key={img.id}>
-                            <Td>
-                              <div style={ui.thumb}>
-                                {img.url ? <img src={img.url} alt="" style={ui.thumbImg} /> : <span style={{ opacity: 0.6 }}>—</span>}
-                              </div>
-                              <div style={{ marginTop: 6, opacity: 0.6 }}>
-                                <code style={ui.code}>{img.id.slice(0, 10)}…</code>
-                              </div>
-                            </Td>
-
-                            <Td>
-                              {isEditing ? (
-                                <input value={editingUrl} onChange={(e) => setEditingUrl(e.target.value)} style={ui.input} disabled={busy} />
-                              ) : (
-                                <div style={{ maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {img.url ?? <span style={{ opacity: 0.6 }}>—</span>}
-                                </div>
-                              )}
-                            </Td>
-
-                            <Td>
-                              {isEditing ? (
-                                <label style={ui.checkRow}>
-                                  <input type="checkbox" checked={editingIsPublic} onChange={(e) => setEditingIsPublic(e.target.checked)} disabled={busy} />
-                                  <span>is_public</span>
-                                </label>
-                              ) : img.is_public ? (
-                                "Yes"
-                              ) : (
-                                "No"
-                              )}
-                            </Td>
-
-                            <Td>
-                              {isEditing ? (
-                                <label style={ui.checkRow}>
-                                  <input type="checkbox" checked={editingCommonUse} onChange={(e) => setEditingCommonUse(e.target.checked)} disabled={busy} />
-                                  <span>is_common_use</span>
-                                </label>
-                              ) : img.is_common_use ? (
-                                "Yes"
-                              ) : (
-                                "No"
-                              )}
-                            </Td>
-
-                            <Td>{img.created_datetime_utc ? new Date(img.created_datetime_utc).toLocaleString() : <span style={{ opacity: 0.6 }}>—</span>}</Td>
-
-                            <Td>
-                              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                                {isEditing ? (
-                                  <>
-                                    <button onClick={saveEdit} style={ui.primaryBtn} disabled={busy}>
-                                      Save
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setEditingId(null);
-                                        setEditingUrl("");
-                                      }}
-                                      style={ui.secondaryBtn}
-                                      disabled={busy}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button onClick={() => startEdit(img)} style={ui.secondaryBtn} disabled={busy}>
-                                      Edit
-                                    </button>
-                                    <button onClick={() => deleteImage(img.id)} style={ui.dangerBtn} disabled={busy}>
-                                      Delete
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </Td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <Td colSpan={6}>
-                          <EmptyState title="No rows visible" body="RLS may limit the images you can read. Try creating one to confirm CREATE works." />
-                        </Td>
-                      </tr>
-                    )}
-                  </tbody>
-                </Table>
-              </section>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={saveHumorMixEdit} style={ui.primaryBtn} disabled={busy}>
+                    Save humor mix
+                  </button>
+                  <button onClick={cancelEdit} style={ui.secondaryBtn} disabled={busy}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
             ) : null}
-          </>
-        )}
+
+            {tab === "terms" ? (
+              <>
+                <div style={ui.formSection}>
+                  <div style={ui.formTitle}>Create term</div>
+                  <div style={ui.formGrid2}>
+                    <Field label="term">
+                      <input
+                        value={termCreate.term}
+                        onChange={(e) => setTermCreate((s) => ({ ...s, term: e.target.value }))}
+                        style={ui.input}
+                      />
+                    </Field>
+
+                    <Field label="priority">
+                      <input
+                        value={termCreate.priority}
+                        onChange={(e) => setTermCreate((s) => ({ ...s, priority: e.target.value }))}
+                        style={ui.input}
+                      />
+                    </Field>
+
+                    <Field label="definition">
+                      <textarea
+                        value={termCreate.definition}
+                        onChange={(e) => setTermCreate((s) => ({ ...s, definition: e.target.value }))}
+                        style={ui.textareaSmall}
+                      />
+                    </Field>
+
+                    <Field label="example">
+                      <textarea
+                        value={termCreate.example}
+                        onChange={(e) => setTermCreate((s) => ({ ...s, example: e.target.value }))}
+                        style={ui.textareaSmall}
+                      />
+                    </Field>
+
+                    <Field label="term_type_id">
+                      <input
+                        value={termCreate.term_type_id}
+                        onChange={(e) => setTermCreate((s) => ({ ...s, term_type_id: e.target.value }))}
+                        style={ui.input}
+                      />
+                    </Field>
+                  </div>
+
+                  <button onClick={createTerm} style={ui.primaryBtn} disabled={busy}>
+                    Create term
+                  </button>
+                </div>
+
+                {editingId ? (
+                  <div style={ui.formSection}>
+                    <div style={ui.formTitle}>
+                      Edit term <code style={ui.code}>{editingId}</code>
+                    </div>
+
+                    <div style={ui.formGrid2}>
+                      <Field label="term">
+                        <input
+                          value={termEdit.term}
+                          onChange={(e) => setTermEdit((s) => ({ ...s, term: e.target.value }))}
+                          style={ui.input}
+                        />
+                      </Field>
+
+                      <Field label="priority">
+                        <input
+                          value={termEdit.priority}
+                          onChange={(e) => setTermEdit((s) => ({ ...s, priority: e.target.value }))}
+                          style={ui.input}
+                        />
+                      </Field>
+
+                      <Field label="definition">
+                        <textarea
+                          value={termEdit.definition}
+                          onChange={(e) => setTermEdit((s) => ({ ...s, definition: e.target.value }))}
+                          style={ui.textareaSmall}
+                        />
+                      </Field>
+
+                      <Field label="example">
+                        <textarea
+                          value={termEdit.example}
+                          onChange={(e) => setTermEdit((s) => ({ ...s, example: e.target.value }))}
+                          style={ui.textareaSmall}
+                        />
+                      </Field>
+
+                      <Field label="term_type_id">
+                        <input
+                          value={termEdit.term_type_id}
+                          onChange={(e) => setTermEdit((s) => ({ ...s, term_type_id: e.target.value }))}
+                          style={ui.input}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={saveTermEdit} style={ui.primaryBtn} disabled={busy}>
+                        Save term
+                      </button>
+                      <button onClick={cancelEdit} style={ui.secondaryBtn} disabled={busy}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {tab === "captionExamples" ? (
+              <>
+                <div style={ui.formSection}>
+                  <div style={ui.formTitle}>Create caption example</div>
+                  <div style={ui.formGrid2}>
+                    <Field label="image_description">
+                      <textarea
+                        value={captionExampleCreate.image_description}
+                        onChange={(e) => setCaptionExampleCreate((s) => ({ ...s, image_description: e.target.value }))}
+                        style={ui.textareaSmall}
+                      />
+                    </Field>
+
+                    <Field label="caption">
+                      <textarea
+                        value={captionExampleCreate.caption}
+                        onChange={(e) => setCaptionExampleCreate((s) => ({ ...s, caption: e.target.value }))}
+                        style={ui.textareaSmall}
+                      />
+                    </Field>
+
+                    <Field label="explanation">
+                      <textarea
+                        value={captionExampleCreate.explanation}
+                        onChange={(e) => setCaptionExampleCreate((s) => ({ ...s, explanation: e.target.value }))}
+                        style={ui.textareaSmall}
+                      />
+                    </Field>
+
+                    <Field label="priority">
+                      <input
+                        value={captionExampleCreate.priority}
+                        onChange={(e) => setCaptionExampleCreate((s) => ({ ...s, priority: e.target.value }))}
+                        style={ui.input}
+                      />
+                    </Field>
+
+                    <Field label="image_id">
+                      <input
+                        value={captionExampleCreate.image_id}
+                        onChange={(e) => setCaptionExampleCreate((s) => ({ ...s, image_id: e.target.value }))}
+                        style={ui.input}
+                        placeholder="uuid or blank"
+                      />
+                    </Field>
+                  </div>
+
+                  <button onClick={createCaptionExample} style={ui.primaryBtn} disabled={busy}>
+                    Create caption example
+                  </button>
+                </div>
+
+                {editingId ? (
+                  <div style={ui.formSection}>
+                    <div style={ui.formTitle}>
+                      Edit caption example <code style={ui.code}>{editingId}</code>
+                    </div>
+
+                    <div style={ui.formGrid2}>
+                      <Field label="image_description">
+                        <textarea
+                          value={captionExampleEdit.image_description}
+                          onChange={(e) => setCaptionExampleEdit((s) => ({ ...s, image_description: e.target.value }))}
+                          style={ui.textareaSmall}
+                        />
+                      </Field>
+
+                      <Field label="caption">
+                        <textarea
+                          value={captionExampleEdit.caption}
+                          onChange={(e) => setCaptionExampleEdit((s) => ({ ...s, caption: e.target.value }))}
+                          style={ui.textareaSmall}
+                        />
+                      </Field>
+
+                      <Field label="explanation">
+                        <textarea
+                          value={captionExampleEdit.explanation}
+                          onChange={(e) => setCaptionExampleEdit((s) => ({ ...s, explanation: e.target.value }))}
+                          style={ui.textareaSmall}
+                        />
+                      </Field>
+
+                      <Field label="priority">
+                        <input
+                          value={captionExampleEdit.priority}
+                          onChange={(e) => setCaptionExampleEdit((s) => ({ ...s, priority: e.target.value }))}
+                          style={ui.input}
+                        />
+                      </Field>
+
+                      <Field label="image_id">
+                        <input
+                          value={captionExampleEdit.image_id}
+                          onChange={(e) => setCaptionExampleEdit((s) => ({ ...s, image_id: e.target.value }))}
+                          style={ui.input}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={saveCaptionExampleEdit} style={ui.primaryBtn} disabled={busy}>
+                        Save caption example
+                      </button>
+                      <button onClick={cancelEdit} style={ui.secondaryBtn} disabled={busy}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {tab === "llmModels" ? (
+              <>
+                <div style={ui.formSection}>
+                  <div style={ui.formTitle}>Create LLM model</div>
+                  <div style={ui.formGrid2}>
+                    <Field label="name">
+                      <input
+                        value={llmModelCreate.name}
+                        onChange={(e) => setLlmModelCreate((s) => ({ ...s, name: e.target.value }))}
+                        style={ui.input}
+                      />
+                    </Field>
+
+                    <Field label="llm_provider_id">
+                      <input
+                        value={llmModelCreate.llm_provider_id}
+                        onChange={(e) => setLlmModelCreate((s) => ({ ...s, llm_provider_id: e.target.value }))}
+                        style={ui.input}
+                      />
+                    </Field>
+
+                    <Field label="provider_model_id">
+                      <input
+                        value={llmModelCreate.provider_model_id}
+                        onChange={(e) => setLlmModelCreate((s) => ({ ...s, provider_model_id: e.target.value }))}
+                        style={ui.input}
+                      />
+                    </Field>
+
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <label style={ui.checkRow}>
+                        <input
+                          type="checkbox"
+                          checked={llmModelCreate.is_temperature_supported}
+                          onChange={(e) =>
+                            setLlmModelCreate((s) => ({
+                              ...s,
+                              is_temperature_supported: e.target.checked,
+                            }))
+                          }
+                        />
+                        <span>is_temperature_supported</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <button onClick={createLlmModel} style={ui.primaryBtn} disabled={busy}>
+                    Create LLM model
+                  </button>
+                </div>
+
+                {editingId ? (
+                  <div style={ui.formSection}>
+                    <div style={ui.formTitle}>
+                      Edit LLM model <code style={ui.code}>{editingId}</code>
+                    </div>
+
+                    <div style={ui.formGrid2}>
+                      <Field label="name">
+                        <input
+                          value={llmModelEdit.name}
+                          onChange={(e) => setLlmModelEdit((s) => ({ ...s, name: e.target.value }))}
+                          style={ui.input}
+                        />
+                      </Field>
+
+                      <Field label="llm_provider_id">
+                        <input
+                          value={llmModelEdit.llm_provider_id}
+                          onChange={(e) => setLlmModelEdit((s) => ({ ...s, llm_provider_id: e.target.value }))}
+                          style={ui.input}
+                        />
+                      </Field>
+
+                      <Field label="provider_model_id">
+                        <input
+                          value={llmModelEdit.provider_model_id}
+                          onChange={(e) => setLlmModelEdit((s) => ({ ...s, provider_model_id: e.target.value }))}
+                          style={ui.input}
+                        />
+                      </Field>
+
+                      <div style={{ display: "grid", gap: 10 }}>
+                        <label style={ui.checkRow}>
+                          <input
+                            type="checkbox"
+                            checked={llmModelEdit.is_temperature_supported}
+                            onChange={(e) =>
+                              setLlmModelEdit((s) => ({
+                                ...s,
+                                is_temperature_supported: e.target.checked,
+                              }))
+                            }
+                          />
+                          <span>is_temperature_supported</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={saveLlmModelEdit} style={ui.primaryBtn} disabled={busy}>
+                        Save LLM model
+                      </button>
+                      <button onClick={cancelEdit} style={ui.secondaryBtn} disabled={busy}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {tab === "llmProviders" ? (
+              <>
+                <div style={ui.formSection}>
+                  <div style={ui.formTitle}>Create LLM provider</div>
+                  <div style={ui.formGrid1}>
+                    <Field label="name">
+                      <input
+                        value={llmProviderCreate.name}
+                        onChange={(e) => setLlmProviderCreate({ name: e.target.value })}
+                        style={ui.input}
+                      />
+                    </Field>
+                  </div>
+
+                  <button onClick={createLlmProvider} style={ui.primaryBtn} disabled={busy}>
+                    Create LLM provider
+                  </button>
+                </div>
+
+                {editingId ? (
+                  <div style={ui.formSection}>
+                    <div style={ui.formTitle}>
+                      Edit LLM provider <code style={ui.code}>{editingId}</code>
+                    </div>
+
+                    <div style={ui.formGrid1}>
+                      <Field label="name">
+                        <input
+                          value={llmProviderEdit.name}
+                          onChange={(e) => setLlmProviderEdit({ name: e.target.value })}
+                          style={ui.input}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={saveLlmProviderEdit} style={ui.primaryBtn} disabled={busy}>
+                        Save LLM provider
+                      </button>
+                      <button onClick={cancelEdit} style={ui.secondaryBtn} disabled={busy}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {tab === "allowedSignupDomains" ? (
+              <>
+                <div style={ui.formSection}>
+                  <div style={ui.formTitle}>Create allowed signup domain</div>
+                  <div style={ui.formGrid1}>
+                    <Field label="apex_domain">
+                      <input
+                        value={allowedDomainCreate.apex_domain}
+                        onChange={(e) => setAllowedDomainCreate({ apex_domain: e.target.value })}
+                        style={ui.input}
+                        placeholder="example.edu"
+                      />
+                    </Field>
+                  </div>
+
+                  <button onClick={createAllowedDomain} style={ui.primaryBtn} disabled={busy}>
+                    Create domain
+                  </button>
+                </div>
+
+                {editingId ? (
+                  <div style={ui.formSection}>
+                    <div style={ui.formTitle}>
+                      Edit allowed domain <code style={ui.code}>{editingId}</code>
+                    </div>
+
+                    <div style={ui.formGrid1}>
+                      <Field label="apex_domain">
+                        <input
+                          value={allowedDomainEdit.apex_domain}
+                          onChange={(e) => setAllowedDomainEdit({ apex_domain: e.target.value })}
+                          style={ui.input}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={saveAllowedDomainEdit} style={ui.primaryBtn} disabled={busy}>
+                        Save domain
+                      </button>
+                      <button onClick={cancelEdit} style={ui.secondaryBtn} disabled={busy}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {tab === "whitelistEmails" ? (
+              <>
+                <div style={ui.formSection}>
+                  <div style={ui.formTitle}>Create whitelist email</div>
+                  <div style={ui.formGrid1}>
+                    <Field label="email_address">
+                      <input
+                        value={whitelistCreate.email_address}
+                        onChange={(e) => setWhitelistCreate({ email_address: e.target.value })}
+                        style={ui.input}
+                        placeholder="name@example.com"
+                      />
+                    </Field>
+                  </div>
+
+                  <button onClick={createWhitelistEmail} style={ui.primaryBtn} disabled={busy}>
+                    Create whitelist email
+                  </button>
+                </div>
+
+                {editingId ? (
+                  <div style={ui.formSection}>
+                    <div style={ui.formTitle}>
+                      Edit whitelist email <code style={ui.code}>{editingId}</code>
+                    </div>
+
+                    <div style={ui.formGrid1}>
+                      <Field label="email_address">
+                        <input
+                          value={whitelistEdit.email_address}
+                          onChange={(e) => setWhitelistEdit({ email_address: e.target.value })}
+                          style={ui.input}
+                        />
+                      </Field>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={saveWhitelistEmailEdit} style={ui.primaryBtn} disabled={busy}>
+                        Save email
+                      </button>
+                      <button onClick={cancelEdit} style={ui.secondaryBtn} disabled={busy}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {loadingRows ? (
+              <div style={ui.loadingCard}>
+                <div style={ui.loadingTitle}>Loading…</div>
+                <div style={ui.loadingSub}>Fetching {currentMeta.table} rows.</div>
+              </div>
+            ) : tab === "images" ? (
+              <ImagesView
+                rows={rows}
+                editingId={editingId}
+                imageEdit={imageEdit}
+                setImageEdit={setImageEdit}
+                busy={busy}
+                onEdit={startEdit}
+                onCancelEdit={cancelEdit}
+                onSaveEdit={saveImageEdit}
+                onDelete={deleteImageRow}
+              />
+            ) : tab === "humorFlavorSteps" ? (
+              <HumorFlavorStepsView rows={rows} />
+            ) : tab === "captions" ? (
+              <CaptionsView rows={rows} />
+            ) : tab === "llmResponses" ? (
+              <LlmResponsesView rows={rows} />
+            ) : (
+              <DataTable
+                rows={rows}
+                columns={visibleColumns}
+                canEdit={
+                  tab === "images" ||
+                  tab === "humorFlavorMix" ||
+                  tab === "terms" ||
+                  tab === "captionExamples" ||
+                  tab === "llmModels" ||
+                  tab === "llmProviders" ||
+                  tab === "allowedSignupDomains" ||
+                  tab === "whitelistEmails"
+                }
+                canDelete={
+                  tab === "images" ||
+                  tab === "terms" ||
+                  tab === "captionExamples" ||
+                  tab === "llmModels" ||
+                  tab === "llmProviders" ||
+                  tab === "allowedSignupDomains" ||
+                  tab === "whitelistEmails"
+                }
+                onEdit={startEdit}
+                onDelete={(id) => {
+                  if (tab === "images") return void deleteImageRow(id);
+                  if (tab === "terms") return void deleteTerm(id);
+                  if (tab === "captionExamples") return void deleteCaptionExample(id);
+                  if (tab === "llmModels") return void deleteLlmModel(id);
+                  if (tab === "llmProviders") return void deleteLlmProvider(id);
+                  if (tab === "allowedSignupDomains") return void deleteAllowedDomain(id);
+                  if (tab === "whitelistEmails") return void deleteWhitelistEmail(id);
+                }}
+              />
+            )}
+          </section>
+        ) : null}
 
         <footer style={ui.footer}>
-          <div style={{ opacity: 0.6 }}>© Admin · internal use</div>
+          <div style={{ opacity: 0.65 }}>© Admin area · schema-matched</div>
         </footer>
       </div>
     </main>
   );
 }
 
-/** ===== UI components ===== */
+function blankImageForm(): ImageForm {
+  return {
+    url: "",
+    is_public: true,
+    is_common_use: false,
+    additional_context: "",
+    image_description: "",
+  };
+}
+
+function blankTermForm(): TermForm {
+  return {
+    term: "",
+    definition: "",
+    example: "",
+    priority: "",
+    term_type_id: "",
+  };
+}
+
+function blankCaptionExampleForm(): CaptionExampleForm {
+  return {
+    image_description: "",
+    caption: "",
+    explanation: "",
+    priority: "",
+    image_id: "",
+  };
+}
+
+function blankLlmModelForm(): LlmModelForm {
+  return {
+    name: "",
+    llm_provider_id: "",
+    provider_model_id: "",
+    is_temperature_supported: false,
+  };
+}
+
+function blankLlmProviderForm(): LlmProviderForm {
+  return { name: "" };
+}
+
+function blankAllowedDomainForm(): AllowedDomainForm {
+  return { apex_domain: "" };
+}
+
+function blankWhitelistEmailForm(): WhitelistEmailForm {
+  return { email_address: "" };
+}
+
+function nullIfBlank(v: string) {
+  const trimmed = v.trim();
+  return trimmed ? trimmed : null;
+}
+
+function parseOptionalInt(v: string) {
+  const trimmed = v.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) throw new Error(`Invalid number: ${v}`);
+  return n;
+}
+
+function deriveColumns(rows: GenericRow[], currentTab?: TabKey) {
+  if (currentTab === "images") {
+    return [
+      "id",
+      "url",
+      "is_public",
+      "is_common_use",
+      "profile_id",
+      "additional_context",
+      "image_description",
+      "created_datetime_utc",
+    ];
+  }
+
+  if (currentTab === "humorFlavorSteps") {
+    return [
+      "id",
+      "humor_flavor_id",
+      "humor_flavor_step_type_id",
+      "step_order",
+      "name",
+      "description",
+      "created_datetime_utc",
+    ];
+  }
+
+  if (currentTab === "captions") {
+    return [
+      "id",
+      "created_datetime_utc",
+      "profile_id",
+      "image_id",
+      "content",
+      "like_count",
+      "is_public",
+    ];
+  }
+
+  if (currentTab === "llmResponses") {
+    return [
+      "id",
+      "created_datetime_utc",
+      "profile_id",
+      "caption_request_id",
+      "humor_flavor_id",
+      "humor_flavor_step_id",
+      "llm_model_id",
+      "llm_prompt_chain_id",
+      "llm_temperature",
+      "llm_model_response",
+      "llm_system_prompt",
+    ];
+  }
+
+  const preferred = [
+    "id",
+    "created_datetime_utc",
+    "modified_datetime_utc",
+    "name",
+    "email",
+    "email_address",
+    "apex_domain",
+    "term",
+    "definition",
+    "example",
+    "priority",
+    "caption_count",
+    "caption",
+    "explanation",
+    "url",
+    "profile_id",
+    "image_id",
+    "is_public",
+    "is_common_use",
+    "additional_context",
+    "image_description",
+    "provider_model_id",
+    "llm_provider_id",
+    "is_temperature_supported",
+  ];
+
+  const set = new Set<string>();
+  for (const row of rows) {
+    Object.keys(row).forEach((k) => set.add(k));
+  }
+
+  const all = [...set];
+  const ordered = [
+    ...preferred.filter((p) => set.has(p)),
+    ...all.filter((k) => !preferred.includes(k)).sort(),
+  ];
+
+  return ordered.slice(0, 12);
+}
+
+function renderCellValue(value: any) {
+  if (value === null || value === undefined) return <span style={{ opacity: 0.5 }}>—</span>;
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "object") {
+    return <pre style={ui.pre}>{JSON.stringify(value, null, 2)}</pre>;
+  }
+
+  const text = String(value);
+
+  if (isLikelyImageUrl(text)) {
+    return (
+      <div style={{ display: "grid", gap: 8 }}>
+        <div style={ui.thumb}>
+          <img src={text} alt="" style={ui.thumbImg} />
+        </div>
+        <div style={ui.clampedCell}>{text}</div>
+      </div>
+    );
+  }
+
+  return <div style={ui.clampedCell}>{text}</div>;
+}
+
+function getFileExtension(filename: string) {
+  return filename.split(".").pop()?.toLowerCase() || "png";
+}
+
+function slugifyBaseName(filename: string) {
+  return filename
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function isLikelyImageUrl(v: string) {
+  return /^https?:\/\//i.test(v) && /\.(png|jpg|jpeg|webp|gif|svg)(\?|#|$)/i.test(v);
+}
+
+function hasColumnForOrdering(table: string) {
+  return [
+    "profiles",
+    "images",
+    "humor_flavor_mix",
+    "terms",
+    "captions",
+    "caption_requests",
+    "caption_examples",
+    "llm_models",
+    "llm_providers",
+    "llm_prompt_chains",
+    "llm_model_responses",
+    "allowed_signup_domains",
+    "whitelist_email_addresses",
+  ].includes(table);
+}
+
+function prettyLlmResponse(
+  value: any
+): { kind: "array"; items: string[] } | { kind: "text"; text: string } {
+  if (value == null) return { kind: "text", text: "—" };
+
+  if (Array.isArray(value)) {
+    return {
+      kind: "array",
+      items: value.map((x) => String(x)),
+    };
+  }
+
+  if (typeof value !== "string") {
+    try {
+      return { kind: "text", text: JSON.stringify(value, null, 2) };
+    } catch {
+      return { kind: "text", text: String(value) };
+    }
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return { kind: "text", text: "—" };
+
+  try {
+    const parsed = JSON.parse(trimmed);
+
+    if (Array.isArray(parsed)) {
+      return {
+        kind: "array",
+        items: parsed.map((x) => String(x)),
+      };
+    }
+
+    return {
+      kind: "text",
+      text: JSON.stringify(parsed, null, 2),
+    };
+  } catch {
+    return { kind: "text", text: value };
+  }
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label style={{ display: "grid", gap: 6 }}>
+      <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 900 }}>{label}</div>
+      {children}
+    </label>
+  );
+}
+
+function MetaItem({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div style={ui.metaItemBetter}>
+      <div style={ui.metaLabelBetter}>{label}</div>
+      <div style={ui.metaValueBetter}>{value}</div>
+    </div>
+  );
+}
+
+function ImagesView({
+  rows,
+  editingId,
+  imageEdit,
+  setImageEdit,
+  busy,
+  onEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onDelete,
+}: {
+  rows: GenericRow[];
+  editingId: string | null;
+  imageEdit: ImageForm;
+  setImageEdit: React.Dispatch<React.SetStateAction<ImageForm>>;
+  busy: boolean;
+  onEdit: (row: GenericRow) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
+  onDelete: (id: string) => void;
+}) {
+  if (!rows.length) {
+    return <EmptyState title="No images" body="No image rows found." />;
+  }
+
+  return (
+    <div style={ui.imagesList}>
+      {rows.map((row) => {
+        const isEditing = editingId === String(row.id);
+        const previewUrl = isEditing ? imageEdit.url : row.url;
+
+        return (
+          <div key={String(row.id)} style={ui.imageRowCard}>
+            <div style={ui.imageRowLeft}>
+              <div style={ui.imageLargeFrame}>
+                {previewUrl ? (
+                  <img src={String(previewUrl)} alt="" style={ui.imageLargeImg} />
+                ) : (
+                  <div style={ui.imagePlaceholder}>No image</div>
+                )}
+              </div>
+
+              <div style={ui.imageActions}>
+                {isEditing ? (
+                  <>
+                    <button onClick={onSaveEdit} style={ui.primaryBtn} disabled={busy}>
+                      Save
+                    </button>
+                    <button onClick={onCancelEdit} style={ui.secondaryBtn} disabled={busy}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => onEdit(row)} style={ui.secondaryBtn} disabled={busy}>
+                      Edit
+                    </button>
+                    <button onClick={() => onDelete(String(row.id))} style={ui.dangerBtn} disabled={busy}>
+                      Delete
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div style={ui.imageRowRight}>
+              <div style={ui.imageHeaderRow}>
+                <div>
+                  <div style={ui.cardTitle}>{isEditing ? "Editing image" : "Image"}</div>
+                  <div style={ui.cardSub}>
+                    <code style={ui.code}>{String(row.id)}</code>
+                  </div>
+                </div>
+
+                {!isEditing ? (
+                  <div style={ui.imageBadgeRow}>
+                    <span style={ui.smallPill}>{row.is_public ? "Public" : "Private"}</span>
+                    <span style={ui.smallPill}>{row.is_common_use ? "Common use" : "Not common use"}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              {isEditing ? (
+                <>
+                  <div style={ui.formGrid2}>
+                    <Field label="URL">
+                      <input
+                        value={imageEdit.url}
+                        onChange={(e) => setImageEdit((s) => ({ ...s, url: e.target.value }))}
+                        style={ui.input}
+                      />
+                    </Field>
+
+                    <Field label="Profile">
+                      <div style={ui.readOnlyField}>
+                        {row.profile_id ? <code style={ui.code}>{String(row.profile_id)}</code> : "—"}
+                      </div>
+                    </Field>
+                  </div>
+
+                  <div style={ui.formGrid2}>
+                    <label style={ui.checkCard}>
+                      <input
+                        type="checkbox"
+                        checked={imageEdit.is_public}
+                        onChange={(e) =>
+                          setImageEdit((s) => ({
+                            ...s,
+                            is_public: e.target.checked,
+                          }))
+                        }
+                      />
+                      <span>is_public</span>
+                    </label>
+
+                    <label style={ui.checkCard}>
+                      <input
+                        type="checkbox"
+                        checked={imageEdit.is_common_use}
+                        onChange={(e) =>
+                          setImageEdit((s) => ({
+                            ...s,
+                            is_common_use: e.target.checked,
+                          }))
+                        }
+                      />
+                      <span>is_common_use</span>
+                    </label>
+                  </div>
+
+                  <div style={ui.contentGrid}>
+                    <div style={ui.contentPanel}>
+                      <div style={ui.textBlockLabel}>Additional context</div>
+                      <textarea
+                        value={imageEdit.additional_context}
+                        onChange={(e) =>
+                          setImageEdit((s) => ({
+                            ...s,
+                            additional_context: e.target.value,
+                          }))
+                        }
+                        style={ui.textareaInline}
+                      />
+                    </div>
+
+                    <div style={ui.contentPanel}>
+                      <div style={ui.textBlockLabel}>Image description</div>
+                      <textarea
+                        value={imageEdit.image_description}
+                        onChange={(e) =>
+                          setImageEdit((s) => ({
+                            ...s,
+                            image_description: e.target.value,
+                          }))
+                        }
+                        style={ui.textareaInlineTall}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={ui.metaGridBetter}>
+                    <MetaItem
+                      label="Created"
+                      value={row.created_datetime_utc ? new Date(row.created_datetime_utc).toLocaleString() : "—"}
+                    />
+                    <MetaItem
+                      label="Modified"
+                      value={row.modified_datetime_utc ? new Date(row.modified_datetime_utc).toLocaleString() : "—"}
+                    />
+                    <MetaItem
+                      label="Profile"
+                      value={row.profile_id ? <code style={ui.code}>{String(row.profile_id)}</code> : "—"}
+                    />
+                    <MetaItem
+                      label="URL"
+                      value={
+                        row.url ? (
+                          <a href={row.url} target="_blank" rel="noreferrer" style={ui.linkLike}>
+                            Open image
+                          </a>
+                        ) : (
+                          "—"
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div style={ui.contentGrid}>
+                    <div style={ui.contentPanel}>
+                      <div style={ui.textBlockLabel}>Additional context</div>
+                      <div style={ui.scrollTextBox}>{row.additional_context || "—"}</div>
+                    </div>
+
+                    <div style={ui.contentPanel}>
+                      <div style={ui.textBlockLabel}>Image description</div>
+                      <div style={ui.scrollTextBoxTall}>{row.image_description || "—"}</div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HumorFlavorStepsView({ rows }: { rows: GenericRow[] }) {
+  if (!rows.length) {
+    return <EmptyState title="No humor flavor steps" body="No rows found." />;
+  }
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={ui.table}>
+        <thead>
+          <tr>
+            <Th>ID</Th>
+            <Th>Flavor ID</Th>
+            <Th>Step Type ID</Th>
+            <Th>Step Order</Th>
+            <Th>Name</Th>
+            <Th>Description</Th>
+            <Th>Created</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={String(row.id ?? idx)}>
+              <Td>{row.id ?? "—"}</Td>
+              <Td>{row.humor_flavor_id ?? "—"}</Td>
+              <Td>{row.humor_flavor_step_type_id ?? "—"}</Td>
+              <Td>{row.step_order ?? "—"}</Td>
+              <Td>{row.name ?? "—"}</Td>
+              <Td>
+                <div style={ui.mediumTextCell}>{row.description ?? "—"}</div>
+              </Td>
+              <Td>{row.created_datetime_utc ? new Date(row.created_datetime_utc).toLocaleString() : "—"}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CaptionsView({ rows }: { rows: GenericRow[] }) {
+  if (!rows.length) {
+    return <EmptyState title="No captions" body="No rows found." />;
+  }
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={ui.table}>
+        <thead>
+          <tr>
+            <Th>Created</Th>
+            <Th>Caption</Th>
+            <Th>Likes</Th>
+            <Th>Public</Th>
+            <Th>Profile</Th>
+            <Th>Image</Th>
+            <Th>ID</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={String(row.id ?? idx)}>
+              <Td>{row.created_datetime_utc ? new Date(row.created_datetime_utc).toLocaleString() : "—"}</Td>
+              <Td>
+                <div style={ui.captionCell}>{row.content ?? row.caption ?? "—"}</div>
+              </Td>
+              <Td>{row.like_count ?? 0}</Td>
+              <Td>{row.is_public ? "Yes" : "No"}</Td>
+              <Td>{row.profile_id ? String(row.profile_id).slice(0, 12) + "…" : "—"}</Td>
+              <Td>{row.image_id ? String(row.image_id).slice(0, 12) + "…" : "—"}</Td>
+              <Td>{row.id ? String(row.id).slice(0, 12) + "…" : "—"}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LlmResponsesView({ rows }: { rows: GenericRow[] }) {
+  if (!rows.length) {
+    return <EmptyState title="No LLM responses" body="No rows found." />;
+  }
+
+  return (
+    <div style={ui.responsesList}>
+      {rows.map((row, idx) => {
+        const parsed = prettyLlmResponse(row.llm_model_response);
+        const isArray = parsed.kind === "array";
+        const isLongText = parsed.kind === "text" && parsed.text.length > 220;
+
+        return (
+          <div key={String(row.id ?? idx)} style={ui.responseCardBetter}>
+            <div style={ui.responseHeader}>
+              <div>
+                <div style={ui.cardTitle}>Response {row.id ?? "—"}</div>
+                <div style={ui.cardSub}>
+                  {row.created_datetime_utc ? new Date(row.created_datetime_utc).toLocaleString() : "—"}
+                </div>
+              </div>
+
+              <div style={ui.responseBadgeWrap}>
+                <span style={ui.smallPill}>Model {row.llm_model_id ?? "—"}</span>
+                <span style={ui.smallPill}>Chain {row.llm_prompt_chain_id ?? "—"}</span>
+                <span style={ui.smallPill}>Temp {row.llm_temperature ?? "—"}</span>
+              </div>
+            </div>
+
+            <div style={ui.metaGridResponse}>
+              <MetaItem
+                label="Profile"
+                value={row.profile_id ? <code style={ui.code}>{String(row.profile_id)}</code> : "—"}
+              />
+              <MetaItem label="Caption Request" value={row.caption_request_id ?? "—"} />
+              <MetaItem label="Humor Flavor" value={row.humor_flavor_id ?? "—"} />
+              <MetaItem label="Humor Step" value={row.humor_flavor_step_id ?? "—"} />
+            </div>
+
+            <div style={ui.textBlockLabel}>Generated response</div>
+
+            {isArray ? (
+              <div style={ui.generatedList}>
+                {parsed.items.map((item, i) => (
+                  <div key={i} style={ui.generatedItem}>
+                    <div style={ui.generatedIndex}>{i + 1}</div>
+                    <div style={ui.generatedText}>{item}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={ui.proseResponseWrap}>
+                <pre style={isLongText ? ui.proseResponseLarge : ui.proseResponseSmall}>{parsed.text}</pre>
+              </div>
+            )}
+
+            <details style={ui.promptDetails}>
+              <summary style={ui.promptSummary}>System prompt</summary>
+              <pre style={ui.promptBoxCollapsed}>{row.llm_system_prompt ?? "—"}</pre>
+            </details>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DataTable({
+  rows,
+  columns,
+  canEdit,
+  canDelete,
+  onEdit,
+  onDelete,
+}: {
+  rows: GenericRow[];
+  columns: string[];
+  canEdit?: boolean;
+  canDelete?: boolean;
+  onEdit?: (row: GenericRow) => void;
+  onDelete?: (id: string) => void;
+}) {
+  if (!rows.length) {
+    return <EmptyState title="No rows visible" body="This table is empty or no rows matched the query." />;
+  }
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={ui.table}>
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <Th key={c}>{c}</Th>
+            ))}
+            {canEdit || canDelete ? <Th>Actions</Th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={String(row.id ?? idx)}>
+              {columns.map((col) => (
+                <Td key={col}>{renderCellValue(row[col])}</Td>
+              ))}
+
+              {canEdit || canDelete ? (
+                <Td>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {canEdit ? (
+                      <button onClick={() => onEdit?.(row)} style={ui.secondaryBtn}>
+                        Edit
+                      </button>
+                    ) : null}
+                    {canDelete && row.id != null ? (
+                      <button onClick={() => onDelete?.(String(row.id))} style={ui.dangerBtn}>
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
+                </Td>
+              ) : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function TabButton({
   active,
@@ -1005,7 +2513,7 @@ function TabButton({
   onClick,
 }: {
   active: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
 }) {
   return (
@@ -1025,59 +2533,25 @@ function Pager({
   page,
   onPrev,
   onNext,
-  canPrev = true,
-  canNext = true,
+  canPrev,
+  canNext,
 }: {
   page: number;
   onPrev: () => void;
   onNext: () => void;
-  canPrev?: boolean;
-  canNext?: boolean;
+  canPrev: boolean;
+  canNext: boolean;
 }) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
       <button onClick={onPrev} style={ui.secondaryBtn} disabled={!canPrev}>
         ←
       </button>
-      <div style={{ opacity: 0.75, fontWeight: 900 }}>Page {page + 1}</div>
+      <div style={{ opacity: 0.8, fontWeight: 900 }}>Page {page + 1}</div>
       <button onClick={onNext} style={ui.secondaryBtn} disabled={!canNext}>
         →
       </button>
     </div>
-  );
-}
-
-function PillSmall({ on, label }: { on: boolean; label: string }) {
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "4px 10px",
-        borderRadius: 999,
-        border: `1px solid rgba(255,255,255,${on ? 0.22 : 0.12})`,
-        background: `rgba(255,255,255,${on ? 0.12 : 0.06})`,
-        fontWeight: 900,
-        fontSize: 12,
-        opacity: on ? 0.95 : 0.65,
-      }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function Table({ children }: { children: React.ReactNode }) {
-  return <table style={ui.table}>{children}</table>;
-}
-function Th({ children }: { children: React.ReactNode }) {
-  return <th style={ui.th}>{children}</th>;
-}
-function Td({ children, colSpan }: { children: React.ReactNode; colSpan?: number }) {
-  return (
-    <td style={ui.td} colSpan={colSpan}>
-      {children}
-    </td>
   );
 }
 
@@ -1091,16 +2565,13 @@ function KpiCard({ title, value, subtitle }: { title: string; value: string; sub
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={ui.metricRow}>
-      <div style={{ opacity: 0.7 }}>{label}</div>
-      <div style={{ fontWeight: 950 }}>{value}</div>
-    </div>
-  );
-}
-
-function SparkBars({ points, maxY }: { points: DailyPoint[]; maxY: number }) {
+function SparkBars({
+  points,
+  maxY,
+}: {
+  points: { day: string; count: number }[];
+  maxY: number;
+}) {
   return (
     <div style={ui.sparkWrap}>
       {points.map((p) => {
@@ -1127,6 +2598,14 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
+function Th({ children }: { children: ReactNode }) {
+  return <th style={ui.th}>{children}</th>;
+}
+
+function Td({ children }: { children: ReactNode }) {
+  return <td style={ui.td}>{children}</td>;
+}
+
 function Background() {
   return (
     <>
@@ -1138,15 +2617,32 @@ function Background() {
   );
 }
 
-/** ===== Styles ===== */
-
 const fontFamily =
   'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"';
 
 const ui: Record<string, CSSProperties> = {
-  shell: { minHeight: "100vh", position: "relative", overflow: "hidden", fontFamily, color: "white", background: "#06070a" },
-  wrap: { position: "relative", zIndex: 2, maxWidth: 1180, margin: "0 auto", padding: "28px 22px 36px" },
-  header: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" },
+  shell: {
+    minHeight: "100vh",
+    position: "relative",
+    overflow: "hidden",
+    fontFamily,
+    color: "white",
+    background: "#06070a",
+  },
+  wrap: {
+    position: "relative",
+    zIndex: 2,
+    maxWidth: 1380,
+    margin: "0 auto",
+    padding: "28px 22px 36px",
+  },
+  header: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+    flexWrap: "wrap",
+  },
 
   kickerRow: { display: "flex", gap: 10, alignItems: "center" },
   kicker: {
@@ -1159,7 +2655,6 @@ const ui: Record<string, CSSProperties> = {
     fontWeight: 950,
     fontSize: 12,
     letterSpacing: 2,
-    opacity: 0.95,
   },
   pill: {
     display: "inline-flex",
@@ -1170,11 +2665,28 @@ const ui: Record<string, CSSProperties> = {
     background: "rgba(255,255,255,0.04)",
     fontWeight: 900,
     fontSize: 12,
-    opacity: 0.85,
+    opacity: 0.9,
+  },
+  smallPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.06)",
+    fontWeight: 900,
+    fontSize: 12,
+    opacity: 0.9,
   },
 
-  h1: { fontSize: 62, lineHeight: 0.95, letterSpacing: -2, margin: "14px 0 10px", fontWeight: 1000 },
-  subline: { opacity: 0.8, fontSize: 15 },
+  h1: {
+    fontSize: 58,
+    lineHeight: 0.95,
+    letterSpacing: -2,
+    margin: "14px 0 10px",
+    fontWeight: 1000,
+  },
+  subline: { opacity: 0.82, fontSize: 15 },
 
   tabs: { marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" },
   tabBtn: {
@@ -1238,7 +2750,12 @@ const ui: Record<string, CSSProperties> = {
     cursor: "pointer",
   },
 
-  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, marginTop: 18 },
+  kpiGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 14,
+    marginTop: 18,
+  },
   kpiCard: {
     borderRadius: 20,
     padding: 18,
@@ -1248,10 +2765,10 @@ const ui: Record<string, CSSProperties> = {
     backdropFilter: "blur(10px)",
   },
   kpiTitle: { opacity: 0.75, fontWeight: 900, fontSize: 14 },
-  kpiValue: { fontSize: 40, fontWeight: 1000, marginTop: 8, letterSpacing: -1 },
+  kpiValue: { fontSize: 38, fontWeight: 1000, marginTop: 8, letterSpacing: -1 },
   kpiSub: { opacity: 0.7, marginTop: 4 },
 
-  twoCol: { display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 14, marginTop: 14 },
+  twoCol: { display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, marginTop: 14 },
 
   card: {
     borderRadius: 20,
@@ -1260,29 +2777,118 @@ const ui: Record<string, CSSProperties> = {
     background: "rgba(255,255,255,0.05)",
     boxShadow: "0 16px 60px rgba(0,0,0,0.35)",
     backdropFilter: "blur(10px)",
-    marginTop: 14,
+    marginTop: 16,
   },
-  cardHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
+  cardHeader: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+  },
   cardTitle: { fontWeight: 950, fontSize: 16 },
   cardSub: { opacity: 0.7, fontSize: 12, marginTop: 4 },
 
-  metrics: { paddingTop: 6 },
-  metricRow: { display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 8 },
-  miniNote: { marginTop: 10, opacity: 0.62, fontSize: 12, lineHeight: 1.45 },
+  formSection: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+    display: "grid",
+    gap: 12,
+  },
+  formTitle: { fontWeight: 950, fontSize: 15 },
+  formGrid1: { display: "grid", gridTemplateColumns: "1fr", gap: 12 },
+  formGrid2: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 },
 
-  sparkWrap: { display: "flex", gap: 10, alignItems: "flex-end", height: 150, padding: "6px 4px" },
-  sparkCol: { flex: 1, minWidth: 30 },
-  sparkTrack: {
-    height: 110,
-    borderRadius: 14,
+  input: {
+    height: 40,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    color: "white",
+    outline: "none",
+    width: "100%",
+  },
+  textareaSmall: {
+    minHeight: 96,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    color: "white",
+    outline: "none",
+    width: "100%",
+    resize: "vertical",
+    fontFamily,
+  },
+
+  checkRow: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    opacity: 0.88,
+    fontWeight: 850,
+  },
+
+  table: {
+    width: "100%",
+    marginTop: 14,
+    borderCollapse: "separate",
+    borderSpacing: 0,
+  },
+  th: {
+    textAlign: "left",
+    padding: "10px 10px",
+    opacity: 0.7,
+    fontWeight: 900,
+    fontSize: 12,
+    borderBottom: "1px solid rgba(255,255,255,0.10)",
+    background: "#0b0d12",
+    position: "sticky",
+    top: 0,
+  },
+  td: {
+    padding: "12px 10px",
+    borderBottom: "1px solid rgba(255,255,255,0.08)",
+    verticalAlign: "top",
+    fontSize: 13,
+    lineHeight: 1.4,
+  },
+
+  code: {
+    padding: "2px 6px",
+    borderRadius: 8,
+    background: "rgba(255,255,255,0.08)",
+    fontSize: 12,
+  },
+
+  thumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    overflow: "hidden",
     border: "1px solid rgba(255,255,255,0.12)",
     background: "rgba(255,255,255,0.04)",
-    display: "flex",
-    alignItems: "flex-end",
-    overflow: "hidden",
   },
-  sparkFill: { width: "100%", borderRadius: 14, background: "rgba(255,255,255,0.20)" },
-  sparkLabel: { marginTop: 8, fontSize: 11, opacity: 0.6, textAlign: "center" },
+  thumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+
+  pre: {
+    margin: 0,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    fontSize: 12,
+    lineHeight: 1.4,
+    opacity: 0.92,
+  },
+  clampedCell: {
+    maxWidth: 360,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    lineHeight: 1.4,
+  },
 
   row: {
     display: "grid",
@@ -1310,8 +2916,18 @@ const ui: Record<string, CSSProperties> = {
   rowValue: { fontWeight: 1000, fontSize: 18, letterSpacing: -0.5 },
   rowSub: { opacity: 0.6, fontSize: 12 },
 
-  imageGrid: { marginTop: 12, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 },
-  imageTile: { borderRadius: 18, overflow: "hidden", border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)" },
+  imageGrid: {
+    marginTop: 12,
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 12,
+  },
+  imageTile: {
+    borderRadius: 18,
+    overflow: "hidden",
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.03)",
+  },
   imageFrame: { aspectRatio: "1 / 1", background: "rgba(255,255,255,0.06)" },
   img: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
   imagePlaceholder: { height: "100%", display: "grid", placeItems: "center", opacity: 0.7 },
@@ -1319,62 +2935,370 @@ const ui: Record<string, CSSProperties> = {
   imageCount: { fontSize: 12, opacity: 0.9 },
   imageId: { marginTop: 6, opacity: 0.7, fontSize: 12 },
 
-  longRow: {
-    display: "grid",
-    gridTemplateColumns: "auto 1fr",
-    gap: 12,
-    alignItems: "flex-start",
-    padding: 12,
+  sparkWrap: { display: "flex", gap: 10, alignItems: "flex-end", height: 160, padding: "6px 4px" },
+  sparkCol: { flex: 1, minWidth: 30 },
+  sparkTrack: {
+    height: 118,
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.04)",
+    display: "flex",
+    alignItems: "flex-end",
+    overflow: "hidden",
+  },
+  sparkFill: { width: "100%", borderRadius: 14, background: "rgba(255,255,255,0.20)" },
+  sparkLabel: { marginTop: 8, fontSize: 11, opacity: 0.6, textAlign: "center" },
+
+  empty: {
+    marginTop: 12,
+    padding: 14,
     borderRadius: 16,
     border: "1px solid rgba(255,255,255,0.10)",
     background: "rgba(255,255,255,0.03)",
   },
-  longBadge: {
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.06)",
-    fontWeight: 950,
-    fontSize: 12,
-    opacity: 0.92,
-    whiteSpace: "nowrap",
-  },
-  longText: { fontWeight: 800, opacity: 0.95, lineHeight: 1.35 },
-  longMeta: { marginTop: 6, opacity: 0.65, fontSize: 12 },
-
-  empty: { marginTop: 12, padding: 14, borderRadius: 16, border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.03)" },
   emptyTitle: { fontWeight: 950 },
   emptyBody: { marginTop: 6, opacity: 0.7, fontSize: 13, lineHeight: 1.45 },
 
-  loadingCard: { marginTop: 18, borderRadius: 20, padding: 18, border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.06)", boxShadow: "0 16px 60px rgba(0,0,0,0.35)", backdropFilter: "blur(10px)" },
+  loadingCard: {
+    marginTop: 18,
+    borderRadius: 20,
+    padding: 18,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+  },
   loadingTitle: { fontWeight: 950, fontSize: 16 },
   loadingSub: { marginTop: 6, opacity: 0.7 },
 
-  errorCard: { marginTop: 18, borderRadius: 20, padding: 18, border: "1px solid rgba(255,120,120,0.28)", background: "rgba(255,120,120,0.10)" },
-
-  filters: { marginTop: 14, display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 10 },
-  input: {
-    height: 40,
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(255,255,255,0.06)",
-    color: "white",
-    outline: "none",
+  errorCard: {
+    marginTop: 18,
+    borderRadius: 20,
+    padding: 18,
+    border: "1px solid rgba(255,120,120,0.28)",
+    background: "rgba(255,120,120,0.10)",
   },
 
-  createBox: { marginTop: 14, padding: 14, borderRadius: 16, border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.03)" },
-  createRow: { display: "grid", gridTemplateColumns: "2fr auto auto auto", gap: 10, alignItems: "center" },
-  checkRow: { display: "inline-flex", alignItems: "center", gap: 8, opacity: 0.85, fontWeight: 850 },
+  footer: {
+    marginTop: 18,
+    paddingTop: 14,
+    borderTop: "1px solid rgba(255,255,255,0.08)",
+  },
 
-  table: { width: "100%", marginTop: 14, borderCollapse: "separate", borderSpacing: 0 },
-  th: { textAlign: "left", padding: "10px 10px", opacity: 0.7, fontWeight: 900, fontSize: 12, borderBottom: "1px solid rgba(255,255,255,0.10)" },
-  td: { padding: "12px 10px", borderBottom: "1px solid rgba(255,255,255,0.08)", verticalAlign: "top" },
+  imagesList: {
+    display: "grid",
+    gap: 18,
+    marginTop: 14,
+  },
+  imageRowCard: {
+    display: "grid",
+    gridTemplateColumns: "320px 1fr",
+    gap: 18,
+    borderRadius: 22,
+    padding: 18,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.04)",
+    boxShadow: "0 12px 40px rgba(0,0,0,0.28)",
+  },
+  imageRowLeft: {
+    display: "grid",
+    gap: 12,
+    alignContent: "start",
+  },
+  imageLargeFrame: {
+    width: "100%",
+    aspectRatio: "1 / 1",
+    borderRadius: 18,
+    overflow: "hidden",
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.04)",
+  },
+  imageLargeImg: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    display: "block",
+  },
+  imageActions: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  imageRowRight: {
+    minWidth: 0,
+    display: "grid",
+    gap: 14,
+    alignContent: "start",
+  },
+  imageHeaderRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+  },
+  imageBadgeRow: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  metaGridBetter: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 10,
+  },
+  metaItemBetter: {
+    padding: "10px 12px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+  },
+  metaLabelBetter: {
+    fontSize: 11,
+    fontWeight: 900,
+    opacity: 0.62,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  metaValueBetter: {
+    marginTop: 6,
+    fontSize: 14,
+    lineHeight: 1.4,
+    wordBreak: "break-word",
+  },
+  contentGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1.25fr",
+    gap: 14,
+  },
+  contentPanel: {
+    minWidth: 0,
+  },
+  scrollTextBox: {
+    marginTop: 8,
+    minHeight: 90,
+    maxHeight: 140,
+    overflow: "auto",
+    padding: 12,
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  },
+  scrollTextBoxTall: {
+    marginTop: 8,
+    minHeight: 140,
+    maxHeight: 220,
+    overflow: "auto",
+    padding: 12,
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+    lineHeight: 1.55,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  },
 
-  thumb: { width: 56, height: 56, borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.04)" },
-  thumbImg: { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  readOnlyField: {
+    minHeight: 40,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+    display: "flex",
+    alignItems: "center",
+    color: "white",
+  },
+  checkCard: {
+    minHeight: 48,
+    padding: "12px 14px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 10,
+    fontWeight: 850,
+  },
+  textareaInline: {
+    width: "100%",
+    minHeight: 120,
+    padding: "12px 14px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.04)",
+    color: "white",
+    resize: "vertical",
+    outline: "none",
+    fontFamily,
+    lineHeight: 1.5,
+  },
+  textareaInlineTall: {
+    width: "100%",
+    minHeight: 200,
+    padding: "12px 14px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.04)",
+    color: "white",
+    resize: "vertical",
+    outline: "none",
+    fontFamily,
+    lineHeight: 1.55,
+  },
 
-  footer: { marginTop: 18, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.08)" },
+  responsesList: {
+    display: "grid",
+    gap: 18,
+    marginTop: 14,
+  },
+  responseCardBetter: {
+    display: "grid",
+    gap: 14,
+    borderRadius: 22,
+    padding: 18,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.04)",
+    boxShadow: "0 12px 40px rgba(0,0,0,0.28)",
+  },
+  responseHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+  },
+  responseBadgeWrap: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  metaGridResponse: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 10,
+  },
+  generatedList: {
+    marginTop: 8,
+    display: "grid",
+    gap: 10,
+  },
+  generatedItem: {
+    display: "grid",
+    gridTemplateColumns: "34px 1fr",
+    gap: 10,
+    alignItems: "start",
+    padding: 12,
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+  },
+  generatedIndex: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    display: "grid",
+    placeItems: "center",
+    fontWeight: 950,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.06)",
+  },
+  generatedText: {
+    lineHeight: 1.55,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  },
+
+  proseResponseWrap: {
+    marginTop: 2,
+  },
+  proseResponseSmall: {
+    margin: 0,
+    padding: 16,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    lineHeight: 1.65,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    fontSize: 14,
+  },
+  proseResponseLarge: {
+    margin: 0,
+    padding: 16,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    lineHeight: 1.55,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    fontSize: 13,
+    maxHeight: 260,
+    overflow: "auto",
+  },
+
+  promptDetails: {
+    marginTop: 6,
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.02)",
+    overflow: "hidden",
+  },
+  promptSummary: {
+    cursor: "pointer",
+    listStyle: "none",
+    padding: "10px 14px",
+    fontWeight: 900,
+    fontSize: 13,
+    opacity: 0.9,
+  },
+  promptBoxCollapsed: {
+    margin: 0,
+    padding: "0 14px 14px 14px",
+    maxHeight: 260,
+    overflow: "auto",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    lineHeight: 1.6,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    fontSize: 13,
+  },
+
+  mediumTextCell: {
+    maxWidth: 420,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    lineHeight: 1.5,
+  },
+  captionCell: {
+    maxWidth: 560,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    lineHeight: 1.5,
+  },
+
+  textBlock: {
+    minWidth: 0,
+  },
+  textBlockLabel: {
+    fontSize: 12,
+    fontWeight: 900,
+    opacity: 0.72,
+    marginBottom: 6,
+  },
+  textBlockBody: {
+    lineHeight: 1.55,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  },
+
+  linkLike: {
+    color: "white",
+    textDecoration: "underline",
+    textUnderlineOffset: 3,
+  },
 
   bgGradient: {
     position: "absolute",
