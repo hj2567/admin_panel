@@ -1774,7 +1774,6 @@ export default function AdminPage() {
                 rows={rows}
                 columns={visibleColumns}
                 canEdit={
-                  tab === "images" ||
                   tab === "humorFlavorMix" ||
                   tab === "terms" ||
                   tab === "captionExamples" ||
@@ -1784,7 +1783,6 @@ export default function AdminPage() {
                   tab === "whitelistEmails"
                 }
                 canDelete={
-                  tab === "images" ||
                   tab === "terms" ||
                   tab === "captionExamples" ||
                   tab === "llmModels" ||
@@ -1794,7 +1792,6 @@ export default function AdminPage() {
                 }
                 onEdit={startEdit}
                 onDelete={(id) => {
-                  if (tab === "images") return void deleteImageRow(id);
                   if (tab === "terms") return void deleteTerm(id);
                   if (tab === "captionExamples") return void deleteCaptionExample(id);
                   if (tab === "llmModels") return void deleteLlmModel(id);
