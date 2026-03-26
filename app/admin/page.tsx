@@ -1310,7 +1310,11 @@ export default function AdminPage() {
                       accept="image/*"
                       onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
                     />
-                    <button onClick={uploadAndCreateImageRow} style={ui.primaryBtn} disabled={busy}>
+                    <button
+                      onClick={uploadAndCreateImageRow}
+                      style={{ ...ui.primaryBtn, marginLeft: "auto" }}
+                      disabled={busy}
+                    >
                       Upload + create row
                     </button>
                   </div>
@@ -3309,11 +3313,16 @@ const ui: Record<string, CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.12)",
     background: "rgba(255,255,255,0.04)",
     boxShadow: "0 12px 40px rgba(0,0,0,0.28)",
+    alignItems: "stretch",
   },
   imageRowLeft: {
-    display: "grid",
+    // Use a column flex layout so Edit/Delete buttons can be pinned to
+    // the bottom edge of the card.
+    display: "flex",
+    flexDirection: "column",
     gap: 12,
-    alignContent: "start",
+    height: "100%",
+    justifyContent: "space-between",
   },
   imageLargeFrame: {
     width: "100%",
