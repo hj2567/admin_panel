@@ -39,7 +39,9 @@ export default function AdminGate({ children }: { children: ReactNode }) {
         hostname === "localhost" ||
         hostname === "127.0.0.1" ||
         hostname === "::1";
-      const isLocal = process.env.NODE_ENV !== "production" || isLocalHost;
+      // Treat "local server" strictly as localhost. This avoids mis-detecting
+      // production builds as "local" based on NODE_ENV inside the browser bundle.
+      const isLocal = isLocalHost;
 
       const emailNormalized = userEmail.trim().toLowerCase();
       const localEmailMatch = emailNormalized === LOCAL_SUPERADMIN_EMAIL.toLowerCase();
@@ -76,14 +78,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
       );
 
       if (!allowed) {
-        const msg = isLocal
-          ? localEmailMatch
-            ? "This account is signed in, but it is not marked as a superadmin."
-            : "On the local server, only hj2567@columbia.edu can access the admin panel."
-          : prodEmailBlocked
-            ? "hj2567@columbia.edu is blocked from accessing the admin panel on Vercel."
-            : "Access denied: this account does not have `profiles.is_superadmin`.";
-        setDenialMessage(msg);
+        setDenialMessage("You do not have access to the admin panel.");
       } else {
         setDenialMessage("");
       }
