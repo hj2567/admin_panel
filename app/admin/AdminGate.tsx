@@ -31,16 +31,20 @@ export default function AdminGate({ children }: { children: ReactNode }) {
       const userEmail = session.user.email || "";
       setEmail(userEmail);
 
-      // DEV-only bypass
-      const devBypassEmail = process.env.NEXT_PUBLIC_ADMIN_DEV_BYPASS_EMAIL;
-      const isDev = process.env.NODE_ENV !== "production";
-      const bypass =
-        isDev &&
-        typeof devBypassEmail === "string" &&
-        devBypassEmail.length > 0 &&
-        userEmail.toLowerCase() === devBypassEmail.toLowerCase();
+      const LOCAL_SUPERADMIN_EMAIL = "hj2567@columbia.edu";
+      const hostname =
+        typeof window !== "undefined" ? window.location.hostname : "";
+      const isLocalHost =
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "::1";
+      const isLocal = process.env.NODE_ENV !== "production" || isLocalHost;
 
-      // profiles.is_superadmin check (fail-closed)
+      const emailNormalized = userEmail.trim().toLowerCase();
+      const localEmailMatch = emailNormalized === LOCAL_SUPERADMIN_EMAIL.toLowerCase();
+      const prodEmailBlocked = emailNormalized === LOCAL_SUPERADMIN_EMAIL.toLowerCase();
+
+      // profiles.is_superadmin check (fail-closed).
       const { data: prof, error } = await supabase
         .from("profiles")
         .select("is_superadmin")
@@ -49,15 +53,25 @@ export default function AdminGate({ children }: { children: ReactNode }) {
 
       const isSuper = !error && !!prof?.is_superadmin;
 
-      setAllowed(isSuper || bypass);
+      // Local: only allow the specific email.
+      // Production/Vercel: allow superadmins except the blocked email.
+      const allowed = isLocal
+        ? localEmailMatch && isSuper
+        : !prodEmailBlocked && isSuper;
+
+      setAllowed(allowed);
       setWhy(
-        isSuper
-          ? "superadmin"
-          : bypass
-          ? "dev-bypass"
-          : error
-          ? "blocked-or-missing-profile"
-          : "not-superadmin"
+        allowed
+          ? isLocal
+            ? "local-superadmin-email"
+            : "superadmin-approved"
+          : isLocal
+            ? localEmailMatch
+              ? "blocked-not-superadmin"
+              : "blocked-non-whitelisted-email"
+            : prodEmailBlocked
+              ? "blocked-on-vercel-email"
+              : "blocked-not-superadmin"
       );
       setLoading(false);
     };
@@ -125,8 +139,8 @@ export default function AdminGate({ children }: { children: ReactNode }) {
             <div style={styles.kicker}>ADMIN</div>
             <div style={styles.title}>Access denied</div>
             <div style={styles.subtitle}>
-              Your account is signed in, but it doesn’t have{" "}
-              <code>profiles.is_superadmin</code>.
+              This admin panel is only available to{" "}
+              <code>hj2567@columbia.edu</code> on the local server.
             </div>
 
             <div style={styles.infoBox}>

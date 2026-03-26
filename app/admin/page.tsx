@@ -124,6 +124,8 @@ export default function AdminPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const [email, setEmail] = useState("");
   const [myProfileId, setMyProfileId] = useState("");
 
@@ -165,6 +167,11 @@ export default function AdminPage() {
 
   const currentMeta = TAB_META[tab];
   const visibleColumns = useMemo(() => deriveColumns(rows, tab), [rows, tab]);
+
+  function auditUserIdOrThrow() {
+    if (!myProfileId) throw new Error("Missing audit user id (myProfileId).");
+    return myProfileId;
+  }
 
   useEffect(() => {
     void boot();
@@ -433,7 +440,9 @@ export default function AdminPage() {
         is_common_use: imageCreate.is_common_use,
         additional_context: nullIfBlank(imageCreate.additional_context),
         image_description: nullIfBlank(imageCreate.image_description),
-        profile_id: myProfileId || null,
+        profile_id: auditUserIdOrThrow(),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       const { error } = await supabase.from("images").insert(payload);
@@ -473,7 +482,9 @@ export default function AdminPage() {
         is_common_use: imageCreate.is_common_use,
         additional_context: nullIfBlank(imageCreate.additional_context),
         image_description: nullIfBlank(imageCreate.image_description),
-        profile_id: myProfileId || null,
+        profile_id: auditUserIdOrThrow(),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       const { error: insertError } = await supabase.from("images").insert(payload);
@@ -507,6 +518,8 @@ export default function AdminPage() {
         is_common_use: imageEdit.is_common_use,
         additional_context: nullIfBlank(imageEdit.additional_context),
         image_description: nullIfBlank(imageEdit.image_description),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       if (!payload.url) throw new Error("URL is required.");
@@ -555,7 +568,11 @@ export default function AdminPage() {
 
       const { error } = await supabase
         .from("humor_flavor_mix")
-        .update({ caption_count: count })
+        .update({
+          caption_count: count,
+          created_by_user_id: auditUserIdOrThrow(),
+          modified_by_user_id: auditUserIdOrThrow(),
+        })
         .eq("id", Number(editingId));
       if (error) throw error;
 
@@ -581,6 +598,8 @@ export default function AdminPage() {
         example: nullIfBlank(termCreate.example),
         priority: parseOptionalInt(termCreate.priority),
         term_type_id: parseOptionalInt(termCreate.term_type_id),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       const { error } = await supabase.from("terms").insert(payload);
@@ -608,6 +627,8 @@ export default function AdminPage() {
         example: nullIfBlank(termEdit.example),
         priority: parseOptionalInt(termEdit.priority),
         term_type_id: parseOptionalInt(termEdit.term_type_id),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       if (!payload.term) throw new Error("term is required.");
@@ -654,6 +675,8 @@ export default function AdminPage() {
         explanation: nullIfBlank(captionExampleCreate.explanation),
         priority: parseOptionalInt(captionExampleCreate.priority),
         image_id: nullIfBlank(captionExampleCreate.image_id),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       const { error } = await supabase.from("caption_examples").insert(payload);
@@ -681,6 +704,8 @@ export default function AdminPage() {
         explanation: nullIfBlank(captionExampleEdit.explanation),
         priority: parseOptionalInt(captionExampleEdit.priority),
         image_id: nullIfBlank(captionExampleEdit.image_id),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       const { error } = await supabase.from("caption_examples").update(payload).eq("id", Number(editingId));
@@ -729,6 +754,8 @@ export default function AdminPage() {
         llm_provider_id: providerId,
         provider_model_id: nullIfBlank(llmModelCreate.provider_model_id),
         is_temperature_supported: llmModelCreate.is_temperature_supported,
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       const { error } = await supabase.from("llm_models").insert(payload);
@@ -759,6 +786,8 @@ export default function AdminPage() {
         llm_provider_id: providerId,
         provider_model_id: nullIfBlank(llmModelEdit.provider_model_id),
         is_temperature_supported: llmModelEdit.is_temperature_supported,
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       };
 
       const { error } = await supabase.from("llm_models").update(payload).eq("id", Number(editingId));
@@ -801,6 +830,8 @@ export default function AdminPage() {
 
       const { error } = await supabase.from("llm_providers").insert({
         name: llmProviderCreate.name.trim(),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       });
 
       if (error) throw error;
@@ -825,7 +856,11 @@ export default function AdminPage() {
 
       const { error } = await supabase
         .from("llm_providers")
-        .update({ name: llmProviderEdit.name.trim() })
+        .update({
+          name: llmProviderEdit.name.trim(),
+          created_by_user_id: auditUserIdOrThrow(),
+          modified_by_user_id: auditUserIdOrThrow(),
+        })
         .eq("id", Number(editingId));
 
       if (error) throw error;
@@ -867,6 +902,8 @@ export default function AdminPage() {
 
       const { error } = await supabase.from("allowed_signup_domains").insert({
         apex_domain: allowedDomainCreate.apex_domain.trim(),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       });
 
       if (error) throw error;
@@ -891,7 +928,11 @@ export default function AdminPage() {
 
       const { error } = await supabase
         .from("allowed_signup_domains")
-        .update({ apex_domain: allowedDomainEdit.apex_domain.trim() })
+        .update({
+          apex_domain: allowedDomainEdit.apex_domain.trim(),
+          created_by_user_id: auditUserIdOrThrow(),
+          modified_by_user_id: auditUserIdOrThrow(),
+        })
         .eq("id", Number(editingId));
 
       if (error) throw error;
@@ -933,6 +974,8 @@ export default function AdminPage() {
 
       const { error } = await supabase.from("whitelist_email_addresses").insert({
         email_address: whitelistCreate.email_address.trim(),
+        created_by_user_id: auditUserIdOrThrow(),
+        modified_by_user_id: auditUserIdOrThrow(),
       });
 
       if (error) throw error;
@@ -957,7 +1000,11 @@ export default function AdminPage() {
 
       const { error } = await supabase
         .from("whitelist_email_addresses")
-        .update({ email_address: whitelistEdit.email_address.trim() })
+        .update({
+          email_address: whitelistEdit.email_address.trim(),
+          created_by_user_id: auditUserIdOrThrow(),
+          modified_by_user_id: auditUserIdOrThrow(),
+        })
         .eq("id", Number(editingId));
 
       if (error) throw error;
@@ -1001,7 +1048,41 @@ export default function AdminPage() {
     <main style={ui.shell}>
       <Background />
 
-      <div style={ui.wrap}>
+      <div style={{ ...ui.wrap, paddingLeft: sidebarOpen ? 280 : 84 }}>
+        <button
+          type="button"
+          aria-label={sidebarOpen ? "Hide table tabs" : "Show table tabs"}
+          onClick={() => setSidebarOpen((v) => !v)}
+          style={ui.sidebarToggleBtn}
+        >
+          <span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span
+              style={{
+                height: 3,
+                width: 18,
+                background: "rgba(255,255,255,0.92)",
+                borderRadius: 2,
+              }}
+            />
+            <span
+              style={{
+                height: 3,
+                width: 18,
+                background: "rgba(255,255,255,0.92)",
+                borderRadius: 2,
+              }}
+            />
+            <span
+              style={{
+                height: 3,
+                width: 18,
+                background: "rgba(255,255,255,0.92)",
+                borderRadius: 2,
+              }}
+            />
+          </span>
+        </button>
+
         <header style={ui.header}>
           <div>
             <div style={ui.kickerRow}>
@@ -1033,26 +1114,27 @@ export default function AdminPage() {
           <KpiCard title="Captions" value={counts.captions.toLocaleString()} subtitle="captions rows" />
         </section>
 
-        <section style={ui.card}>
-          <div style={ui.cardTitle}>Sections</div>
-          <div style={ui.cardSub}>All assignment requirements are included below.</div>
-
-          <nav style={ui.tabs}>
-            {(Object.keys(TAB_META) as TabKey[]).map((key) => (
-              <TabButton
-                key={key}
-                active={tab === key}
-                onClick={() => {
-                  setPage(0);
-                  cancelEdit();
-                  setTab(key);
-                }}
-              >
-                {TAB_META[key].label}
-              </TabButton>
-            ))}
-          </nav>
-        </section>
+        {sidebarOpen ? (
+          <aside style={ui.sidebar}>
+            <nav style={ui.sidebarNav}>
+              {(Object.keys(TAB_META) as TabKey[]).map((key) => (
+                <SidebarTabButton
+                  key={key}
+                  expanded
+                  active={tab === key}
+                  icon={tabIconForKey(key)}
+                  label={TAB_META[key].label}
+                  onClick={() => {
+                    setPage(0);
+                    cancelEdit();
+                    setTab(key);
+                    // Keep sidebar open so user can switch quickly.
+                  }}
+                />
+              ))}
+            </nav>
+          </aside>
+        ) : null}
 
         {loadingApp ? (
           <div style={ui.loadingCard}>
@@ -1064,7 +1146,7 @@ export default function AdminPage() {
         {!loadingApp && tab === "dashboard" ? (
           <>
             <section style={ui.twoCol}>
-              <div style={ui.card}>
+              <div style={{ ...ui.card, display: "flex", flexDirection: "column" }}>
                 <div style={ui.cardHeader}>
                   <div>
                     <div style={ui.cardTitle}>Caption velocity</div>
@@ -1073,7 +1155,7 @@ export default function AdminPage() {
                   <span style={ui.pill}>Trend</span>
                 </div>
 
-                <div style={{ marginTop: 12 }}>
+                <div style={{ marginTop: 12, flex: 1, display: "flex" }}>
                   <SparkBars points={recentCaptionPoints} maxY={maxChartY} />
                 </div>
               </div>
@@ -1991,7 +2073,70 @@ function renderCellValue(value: any) {
     );
   }
 
+  // Make IDs, timestamps, and large numbers readable in narrow table columns.
+  // Without this, long UUID-like strings wrap into unreadable vertical chunks.
+  const pretty = formatIdNumberOrDateForTable(text);
+  if (pretty) return pretty;
+
   return <div style={ui.clampedCell}>{text}</div>;
+}
+
+function isUuidLike(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+function formatIdLikeForTable(s: string) {
+  if (!isUuidLike(s)) return null;
+  const start = s.slice(0, 8);
+  const end = s.slice(-6);
+  return { text: `${start}...${end}`, full: s };
+}
+
+function formatDateLikeForTable(s: string) {
+  // Common DB pattern: `YYYY-MM-DD...` (ISO 8601 or timestamp)
+  if (!/^\d{4}-\d{2}-\d{2}/.test(s)) return null;
+  // Keep it short for readability, but allow hover for full value.
+  const short = s.slice(0, 10);
+  return { text: short, full: s };
+}
+
+function formatNumberLikeForTable(s: string) {
+  // Only treat integers as numbers to avoid messing up non-numeric content.
+  if (!/^-?\d+$/.test(s)) return null;
+  const num = Number(s);
+  if (!Number.isFinite(num)) return null;
+  return { text: new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(num), full: s };
+}
+
+function formatIdNumberOrDateForTable(text: string) {
+  const id = formatIdLikeForTable(text);
+  if (id) {
+    return (
+      <span style={ui.inlineMonoEllipsis} title={id.full}>
+        {id.text}
+      </span>
+    );
+  }
+
+  const date = formatDateLikeForTable(text);
+  if (date) {
+    return (
+      <span style={ui.inlineMonoEllipsis} title={date.full}>
+        {date.text}
+      </span>
+    );
+  }
+
+  const num = formatNumberLikeForTable(text);
+  if (num) {
+    return (
+      <span style={ui.inlineMonoEllipsis} title={num.full}>
+        {num.text}
+      </span>
+    );
+  }
+
+  return null;
 }
 
 function getFileExtension(filename: string) {
@@ -2504,24 +2649,54 @@ function DataTable({
   );
 }
 
-function TabButton({
+// Tabs now render via `SidebarTabButton` (the old centered `TabButton` was removed).
+
+function tabIconForKey(key: TabKey) {
+  const label = TAB_META[key].label;
+  const parts = label
+    .split(" ")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const icon = parts
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("")
+    .slice(0, 3);
+  return icon || label.slice(0, 3).toUpperCase();
+}
+
+function SidebarTabButton({
+  expanded,
   active,
-  children,
+  icon,
+  label,
   onClick,
 }: {
+  expanded: boolean;
   active: boolean;
-  children: ReactNode;
+  icon: string;
+  label: string;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
+      aria-label={label}
       style={{
-        ...(ui.tabBtn as CSSProperties),
-        ...(active ? (ui.tabBtnActive as CSSProperties) : {}),
+        ...(ui.sidebarTabBtn as CSSProperties),
+        ...(active ? (ui.sidebarTabBtnActive as CSSProperties) : {}),
       }}
     >
-      {children}
+      <span style={ui.sidebarTabIcon}>{icon}</span>
+      <span
+        style={{
+          ...(ui.sidebarTabLabel as CSSProperties),
+          maxWidth: expanded ? 160 : 0,
+          opacity: expanded ? 1 : 0,
+        }}
+        title={label}
+      >
+        {label}
+      </span>
     </button>
   );
 }
@@ -2703,6 +2878,121 @@ const ui: Record<string, CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.22)",
   },
 
+  sidebar: {
+    position: "fixed",
+    left: 18,
+    top: 142,
+    bottom: 18,
+    zIndex: 20,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    padding: 12,
+    borderRadius: 18,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(6,7,10,0.72)",
+    backdropFilter: "blur(10px)",
+    width: 210,
+    overflow: "hidden",
+  } satisfies CSSProperties,
+
+  sidebarToggleBtn: {
+    position: "fixed",
+    left: 18,
+    top: 92,
+    zIndex: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.16)",
+    background: "rgba(255,255,255,0.06)",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 1000,
+    fontSize: 20,
+    display: "grid",
+    placeItems: "center",
+    boxShadow: "0 14px 30px rgba(0,0,0,0.28)",
+    transition: "transform 120ms ease, background 120ms ease",
+  } satisfies CSSProperties,
+
+  sidebarHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "6px 8px",
+  },
+
+  sidebarHeaderIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    display: "grid",
+    placeItems: "center",
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.05)",
+    fontWeight: 1000,
+    opacity: 0.95,
+  },
+
+  sidebarHeaderHint: {
+    fontSize: 12,
+    opacity: 0.7,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  sidebarNav: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    overflowY: "auto",
+    paddingRight: 2,
+  } satisfies CSSProperties,
+
+  sidebarTabBtn: {
+    width: "100%",
+    height: 40,
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "0 12px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.05)",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 950,
+    opacity: 0.75,
+    transition: "background 120ms ease, opacity 120ms ease",
+  } satisfies CSSProperties,
+
+  sidebarTabBtnActive: {
+    opacity: 1,
+    background: "rgba(255,255,255,0.10)",
+    border: "1px solid rgba(255,255,255,0.22)",
+  },
+
+  sidebarTabIcon: {
+    width: 24,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 1000,
+    opacity: 0.95,
+  },
+
+  sidebarTabLabel: {
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    fontSize: 13,
+    fontWeight: 950,
+    transition: "max-width 180ms ease, opacity 180ms ease",
+  } satisfies CSSProperties,
+
   signout: {
     height: 44,
     padding: "12px 16px",
@@ -2861,6 +3151,18 @@ const ui: Record<string, CSSProperties> = {
     background: "rgba(255,255,255,0.08)",
     fontSize: 12,
   },
+  inlineMonoEllipsis: {
+    display: "inline-block",
+    fontFamily:
+      'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    fontSize: 12,
+    opacity: 0.9,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: 240,
+    verticalAlign: "bottom",
+  },
 
   thumb: {
     width: 72,
@@ -2932,10 +3234,23 @@ const ui: Record<string, CSSProperties> = {
   imageCount: { fontSize: 12, opacity: 0.9 },
   imageId: { marginTop: 6, opacity: 0.7, fontSize: 12 },
 
-  sparkWrap: { display: "flex", gap: 10, alignItems: "flex-end", height: 160, padding: "6px 4px" },
-  sparkCol: { flex: 1, minWidth: 30 },
+  sparkWrap: {
+    display: "flex",
+    gap: 10,
+    alignItems: "stretch",
+    flex: 1,
+    minHeight: 160,
+    padding: "6px 4px",
+  },
+  sparkCol: {
+    flex: 1,
+    minWidth: 30,
+    height: "100%",
+    display: "flex",
+    flexDirection: "column",
+  },
   sparkTrack: {
-    height: 118,
+    flex: 1,
     borderRadius: 14,
     border: "1px solid rgba(255,255,255,0.12)",
     background: "rgba(255,255,255,0.04)",
