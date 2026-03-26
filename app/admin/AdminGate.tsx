@@ -10,6 +10,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(false);
   const [email, setEmail] = useState<string>("");
   const [why, setWhy] = useState<string>("");
+  const [denialMessage, setDenialMessage] = useState<string>("");
 
   useEffect(() => {
     const run = async () => {
@@ -73,6 +74,19 @@ export default function AdminGate({ children }: { children: ReactNode }) {
               ? "blocked-on-vercel-email"
               : "blocked-not-superadmin"
       );
+
+      if (!allowed) {
+        const msg = isLocal
+          ? localEmailMatch
+            ? "This account is signed in, but it is not marked as a superadmin."
+            : "On the local server, only hj2567@columbia.edu can access the admin panel."
+          : prodEmailBlocked
+            ? "hj2567@columbia.edu is blocked from accessing the admin panel on Vercel."
+            : "Access denied: this account does not have `profiles.is_superadmin`.";
+        setDenialMessage(msg);
+      } else {
+        setDenialMessage("");
+      }
       setLoading(false);
     };
 
@@ -139,8 +153,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
             <div style={styles.kicker}>ADMIN</div>
             <div style={styles.title}>Access denied</div>
             <div style={styles.subtitle}>
-              This admin panel is only available to{" "}
-              <code>hj2567@columbia.edu</code> on the local server.
+              {denialMessage || "Access denied. This admin panel is restricted to authorized superadmins."}
             </div>
 
             <div style={styles.infoBox}>
