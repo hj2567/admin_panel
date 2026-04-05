@@ -179,6 +179,12 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
+    setPage(0);
+    setEditingId(null);
+    setError("");
+  }, [tab]);
+
+  useEffect(() => {
     if (loadingApp) return;
 
     if (tab === "dashboard") {
@@ -1043,12 +1049,13 @@ export default function AdminPage() {
   }
 
   const maxChartY = Math.max(1, ...recentCaptionPoints.map((x) => x.count));
+  const isDashboard = tab === "dashboard";
 
   return (
     <main style={ui.shell}>
       <Background />
 
-      <div style={{ ...ui.wrap, paddingLeft: sidebarOpen ? 280 : 84 }}>
+      <div style={ui.wrap}>
         <button
           type="button"
           aria-label={sidebarOpen ? "Hide table tabs" : "Show table tabs"}
@@ -1087,10 +1094,10 @@ export default function AdminPage() {
           <div>
             <div style={ui.kickerRow}>
               <span style={ui.kicker}>ADMIN</span>
-              <span style={ui.pill}>Full schema panel</span>
+              <span style={ui.pill}>{isDashboard ? "Overview" : currentMeta.label}</span>
             </div>
 
-            <h1 style={ui.h1}>Admin Area</h1>
+            <h1 style={ui.h1}>{isDashboard ? "Admin Area" : currentMeta.label}</h1>
             <div style={ui.subline}>
               Signed in as <b style={{ opacity: 0.95 }}>{email || "unknown"}</b>
             </div>
@@ -1108,33 +1115,50 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        <section style={ui.kpiGrid}>
-          <KpiCard title="Users" value={counts.users.toLocaleString()} subtitle="profiles rows" />
-          <KpiCard title="Images" value={counts.images.toLocaleString()} subtitle="images rows" />
-          <KpiCard title="Captions" value={counts.captions.toLocaleString()} subtitle="captions rows" />
-        </section>
+        {isDashboard ? (
+          <section style={ui.kpiGrid}>
+            <KpiCard title="Users" value={counts.users.toLocaleString()} subtitle="profiles rows" />
+            <KpiCard title="Images" value={counts.images.toLocaleString()} subtitle="images rows" />
+            <KpiCard title="Captions" value={counts.captions.toLocaleString()} subtitle="captions rows" />
+          </section>
+        ) : (
+          <div style={ui.contentTopSpacing} />
+        )}
 
         {sidebarOpen ? (
-          <aside style={ui.sidebar}>
-            <nav style={ui.sidebarNav}>
-              {(Object.keys(TAB_META) as TabKey[]).map((key) => (
-                <SidebarTabButton
-                  key={key}
-                  expanded
-                  active={tab === key}
-                  icon={tabIconForKey(key)}
-                  label={TAB_META[key].label}
-                  onClick={() => {
-                    setPage(0);
-                    cancelEdit();
-                    setTab(key);
-                    // Keep sidebar open so user can switch quickly.
-                  }}
-                />
-              ))}
-            </nav>
-          </aside>
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            onClick={() => setSidebarOpen(false)}
+            style={ui.sidebarBackdrop}
+          />
         ) : null}
+
+        <aside
+          style={{
+            ...ui.sidebar,
+            transform: sidebarOpen ? "translateX(0)" : "translateX(calc(-100% - 20px))",
+            opacity: sidebarOpen ? 1 : 0,
+            pointerEvents: sidebarOpen ? "auto" : "none",
+          }}
+        >
+          <nav style={ui.sidebarNav}>
+            {(Object.keys(TAB_META) as TabKey[]).map((key) => (
+              <SidebarTabButton
+                key={key}
+                expanded
+                active={tab === key}
+                icon={tabIconForKey(key)}
+                label={TAB_META[key].label}
+                onClick={() => {
+                  setPage(0);
+                  cancelEdit();
+                  setTab(key);
+                }}
+              />
+            ))}
+          </nav>
+        </aside>
 
         {loadingApp ? (
           <div style={ui.loadingCard}>
@@ -1143,7 +1167,7 @@ export default function AdminPage() {
           </div>
         ) : null}
 
-        {!loadingApp && tab === "dashboard" ? (
+        {!loadingApp && isDashboard ? (
           <>
             <section style={ui.twoCol}>
               <div style={{ ...ui.card, display: "flex", flexDirection: "column" }}>
@@ -1222,7 +1246,7 @@ export default function AdminPage() {
           </>
         ) : null}
 
-        {!loadingApp && tab !== "dashboard" ? (
+        {!loadingApp && !isDashboard ? (
           <section style={ui.card}>
             <div style={ui.cardHeader}>
               <div>
@@ -2818,6 +2842,7 @@ const ui: Record<string, CSSProperties> = {
     justifyContent: "space-between",
     gap: 16,
     flexWrap: "wrap",
+    paddingTop: 20,
   },
 
   kickerRow: { display: "flex", gap: 10, alignItems: "center" },
@@ -2882,6 +2907,17 @@ const ui: Record<string, CSSProperties> = {
     border: "1px solid rgba(255,255,255,0.22)",
   },
 
+  sidebarBackdrop: {
+    position: "fixed",
+    inset: 0,
+    border: "none",
+    padding: 0,
+    margin: 0,
+    background: "rgba(3, 6, 18, 0.28)",
+    zIndex: 19,
+    cursor: "pointer",
+  } satisfies CSSProperties,
+
   sidebar: {
     position: "fixed",
     left: 18,
@@ -2898,6 +2934,9 @@ const ui: Record<string, CSSProperties> = {
     backdropFilter: "blur(10px)",
     width: 210,
     overflow: "hidden",
+    boxShadow: "0 24px 60px rgba(0,0,0,0.36)",
+    transition: "transform 260ms ease, opacity 260ms ease",
+    willChange: "transform, opacity",
   } satisfies CSSProperties,
 
   sidebarToggleBtn: {
@@ -2917,7 +2956,7 @@ const ui: Record<string, CSSProperties> = {
     display: "grid",
     placeItems: "center",
     boxShadow: "0 14px 30px rgba(0,0,0,0.28)",
-    transition: "transform 120ms ease, background 120ms ease",
+    transition: "transform 120ms ease, background 120ms ease, opacity 120ms ease",
   } satisfies CSSProperties,
 
   sidebarHeader: {
