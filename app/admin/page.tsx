@@ -1,7 +1,8 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 const IMAGE_BUCKET = "images";
@@ -11,6 +12,22 @@ type Counts = {
   users: number;
   images: number;
   captions: number;
+  ratings: number;
+};
+
+type RatingPoint = {
+  day: string;
+  count: number;
+};
+
+type RatedCaption = {
+  caption_id: string;
+  content: string;
+  image_id: string | null;
+  likes: number;
+  dislikes: number;
+  score: number;
+  totalVotes: number;
 };
 
 type TabKey =
@@ -129,15 +146,24 @@ export default function AdminPage() {
   const [email, setEmail] = useState("");
   const [myProfileId, setMyProfileId] = useState("");
 
-  const [counts, setCounts] = useState<Counts>({ users: 0, images: 0, captions: 0 });
+  const [counts, setCounts] = useState<Counts>({ users: 0, images: 0, captions: 0, ratings: 0 });
 
   const [rows, setRows] = useState<GenericRow[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
 
-  const [recentCaptionPoints, setRecentCaptionPoints] = useState<{ day: string; count: number }[]>([]);
+  const [recentCaptionPoints, setRecentCaptionPoints] = useState<RatingPoint[]>([]);
+  const [recentRatingPoints, setRecentRatingPoints] = useState<RatingPoint[]>([]);
   const [topCaptioners, setTopCaptioners] = useState<{ label: string; count: number }[]>([]);
   const [topImages, setTopImages] = useState<{ image_id: string; url?: string; count: number }[]>([]);
+  const [topRatedCaptions, setTopRatedCaptions] = useState<RatedCaption[]>([]);
+  const [mostRatedCaptions, setMostRatedCaptions] = useState<RatedCaption[]>([]);
+  const [ratingSummary, setRatingSummary] = useState({
+    totalLikes: 0,
+    totalDislikes: 0,
+    avgVotesPerCaption: 0,
+    ratedCaptionCount: 0,
+  });
 
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -217,16 +243,18 @@ export default function AdminPage() {
   }
 
   async function refreshCountsOnly() {
-    const [u, i, c] = await Promise.all([
+    const [u, i, c, v] = await Promise.all([
       supabase.from("profiles").select("*", { count: "exact", head: true }),
       supabase.from("images").select("*", { count: "exact", head: true }),
       supabase.from("captions").select("*", { count: "exact", head: true }),
+      supabase.from("caption_votes").select("*", { count: "exact", head: true }),
     ]);
 
     setCounts({
       users: u.count ?? 0,
       images: i.count ?? 0,
       captions: c.count ?? 0,
+      ratings: v.count ?? 0,
     });
   }
 
@@ -235,22 +263,41 @@ export default function AdminPage() {
 
     const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
 
-    const { data: caps, error: capsError } = await supabase
-      .from("captions")
-      .select("id,profile_id,image_id,created_datetime_utc")
-      .gte("created_datetime_utc", since)
-      .order("created_datetime_utc", { ascending: true })
-      .limit(5000);
+    const [capsResult, votesResult] = await Promise.all([
+      supabase
+        .from("captions")
+        .select("id,profile_id,image_id,content,created_datetime_utc")
+        .gte("created_datetime_utc", since)
+        .order("created_datetime_utc", { ascending: true })
+        .limit(5000),
+      supabase
+        .from("caption_votes")
+        .select("caption_id,vote_value,created_datetime_utc")
+        .order("created_datetime_utc", { ascending: true })
+        .limit(10000),
+    ]);
 
-    if (capsError) {
-      setError(capsError.message);
+    if (capsResult.error) {
+      setError(capsResult.error.message);
       return;
     }
 
-    const captionRows = (caps ?? []) as Array<{
+    if (votesResult.error) {
+      setError(votesResult.error.message);
+      return;
+    }
+
+    const captionRows = (capsResult.data ?? []) as Array<{
       id: string;
       profile_id: string | null;
       image_id: string | null;
+      content: string | null;
+      created_datetime_utc: string | null;
+    }>;
+
+    const voteRows = (votesResult.data ?? []) as Array<{
+      caption_id: string | null;
+      vote_value: number | null;
       created_datetime_utc: string | null;
     }>;
 
@@ -261,12 +308,28 @@ export default function AdminPage() {
       byDay.set(d, (byDay.get(d) ?? 0) + 1);
     }
 
-    const points: { day: string; count: number }[] = [];
+    const points: RatingPoint[] = [];
     for (let d = 6; d >= 0; d--) {
       const date = new Date(Date.now() - d * 24 * 3600 * 1000).toISOString().slice(0, 10);
       points.push({ day: date, count: byDay.get(date) ?? 0 });
     }
     setRecentCaptionPoints(points);
+
+    const ratingByDay = new Map<string, number>();
+    for (const row of voteRows) {
+      if (!row.created_datetime_utc) continue;
+      const created = new Date(row.created_datetime_utc);
+      if (created < new Date(since)) continue;
+      const d = created.toISOString().slice(0, 10);
+      ratingByDay.set(d, (ratingByDay.get(d) ?? 0) + 1);
+    }
+
+    const ratingPoints: RatingPoint[] = [];
+    for (let d = 6; d >= 0; d--) {
+      const date = new Date(Date.now() - d * 24 * 3600 * 1000).toISOString().slice(0, 10);
+      ratingPoints.push({ day: date, count: ratingByDay.get(date) ?? 0 });
+    }
+    setRecentRatingPoints(ratingPoints);
 
     const userCountMap = new Map<string, number>();
     const imageCountMap = new Map<string, number>();
@@ -276,7 +339,7 @@ export default function AdminPage() {
       if (row.image_id) imageCountMap.set(row.image_id, (imageCountMap.get(row.image_id) ?? 0) + 1);
     }
 
-    const topUserPairs = [...userCountMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const topUserPairs = [...userCountMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
     const topImagePairs = [...imageCountMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
 
     if (topUserPairs.length) {
@@ -319,6 +382,94 @@ export default function AdminPage() {
     } else {
       setTopImages([]);
     }
+
+    const captionMeta = new Map(
+      captionRows.map((row) => [
+        row.id,
+        {
+          content: row.content ?? "",
+          image_id: row.image_id ?? null,
+        },
+      ])
+    );
+
+    const votedCaptionIds = [...new Set(voteRows.map((v) => v.caption_id).filter(Boolean))] as string[];
+    const missingCaptionIds = votedCaptionIds.filter((id) => !captionMeta.has(id));
+
+    if (missingCaptionIds.length) {
+      const { data: extraCaptions } = await supabase
+        .from("captions")
+        .select("id,content,image_id")
+        .in("id", missingCaptionIds.slice(0, 5000));
+
+      for (const row of extraCaptions ?? []) {
+        captionMeta.set(String(row.id), {
+          content: row.content ?? "",
+          image_id: row.image_id ?? null,
+        });
+      }
+    }
+
+    const ratingMap = new Map<string, RatedCaption>();
+    let totalLikes = 0;
+    let totalDislikes = 0;
+
+    for (const vote of voteRows) {
+      if (!vote.caption_id || vote.vote_value == null) continue;
+
+      const meta = captionMeta.get(vote.caption_id) ?? { content: "", image_id: null };
+      const existing = ratingMap.get(vote.caption_id) ?? {
+        caption_id: vote.caption_id,
+        content: meta.content,
+        image_id: meta.image_id,
+        likes: 0,
+        dislikes: 0,
+        score: 0,
+        totalVotes: 0,
+      };
+
+      existing.totalVotes += 1;
+
+      if (vote.vote_value > 0) {
+        existing.likes += 1;
+        existing.score += 1;
+        totalLikes += 1;
+      } else if (vote.vote_value < 0) {
+        existing.dislikes += 1;
+        existing.score -= 1;
+        totalDislikes += 1;
+      }
+
+      ratingMap.set(vote.caption_id, existing);
+    }
+
+    const ratedRows = [...ratingMap.values()];
+
+    setRatingSummary({
+      totalLikes,
+      totalDislikes,
+      avgVotesPerCaption: ratedRows.length > 0 ? Number((voteRows.length / ratedRows.length).toFixed(2)) : 0,
+      ratedCaptionCount: ratedRows.length,
+    });
+
+    setTopRatedCaptions(
+      ratedRows
+        .filter((row) => row.totalVotes >= 2)
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return b.totalVotes - a.totalVotes;
+        })
+        .slice(0, 8)
+    );
+
+    setMostRatedCaptions(
+      ratedRows
+        .sort((a, b) => {
+          if (b.totalVotes !== a.totalVotes) return b.totalVotes - a.totalVotes;
+          return b.score - a.score;
+        })
+        .slice(0, 8)
+    );
   }
 
   async function loadTable() {
@@ -1049,6 +1200,7 @@ export default function AdminPage() {
   }
 
   const maxChartY = Math.max(1, ...recentCaptionPoints.map((x) => x.count));
+  const maxRatingChartY = Math.max(1, ...recentRatingPoints.map((x) => x.count));
   const isDashboard = tab === "dashboard";
 
   return (
@@ -1120,6 +1272,11 @@ export default function AdminPage() {
             <KpiCard title="Users" value={counts.users.toLocaleString()} subtitle="profiles rows" />
             <KpiCard title="Images" value={counts.images.toLocaleString()} subtitle="images rows" />
             <KpiCard title="Captions" value={counts.captions.toLocaleString()} subtitle="captions rows" />
+            <KpiCard title="Ratings" value={counts.ratings.toLocaleString()} subtitle="caption_votes rows" />
+            <KpiCard title="Likes" value={ratingSummary.totalLikes.toLocaleString()} subtitle="positive votes" />
+            <KpiCard title="Dislikes" value={ratingSummary.totalDislikes.toLocaleString()} subtitle="negative votes" />
+            <KpiCard title="Avg votes / rated caption" value={ratingSummary.avgVotesPerCaption.toFixed(2)} subtitle="engagement depth" />
+            <KpiCard title="Rated captions" value={ratingSummary.ratedCaptionCount.toLocaleString()} subtitle="captions with votes" />
           </section>
         ) : (
           <div style={ui.contentTopSpacing} />
@@ -1180,10 +1337,26 @@ export default function AdminPage() {
                 </div>
 
                 <div style={{ marginTop: 12, flex: 1, display: "flex" }}>
-                  <SparkBars points={recentCaptionPoints} maxY={maxChartY} />
+                  <SparkBars points={recentCaptionPoints} maxY={maxChartY} unitLabel="captions" />
                 </div>
               </div>
 
+              <div style={{ ...ui.card, display: "flex", flexDirection: "column" }}>
+                <div style={ui.cardHeader}>
+                  <div>
+                    <div style={ui.cardTitle}>Rating velocity</div>
+                    <div style={ui.cardSub}>Last 7 days</div>
+                  </div>
+                  <span style={ui.pill}>Votes</span>
+                </div>
+
+                <div style={{ marginTop: 12, flex: 1, display: "flex" }}>
+                  <SparkBars points={recentRatingPoints} maxY={maxRatingChartY} unitLabel="votes" />
+                </div>
+              </div>
+            </section>
+
+            <section style={ui.twoCol}>
               <div style={ui.card}>
                 <div style={ui.cardHeader}>
                   <div>
@@ -1210,38 +1383,85 @@ export default function AdminPage() {
                   <EmptyState title="No recent activity" body="No captions in the last 7 days." />
                 )}
               </div>
+
+              <div style={ui.card}>
+                <div style={ui.cardHeader}>
+                  <div>
+                    <div style={ui.cardTitle}>Top rated captions</div>
+                    <div style={ui.cardSub}>Best net score from user voting</div>
+                  </div>
+                  <span style={ui.pill}>Quality</span>
+                </div>
+
+                {topRatedCaptions.length ? (
+                  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                    {topRatedCaptions.map((row, idx) => (
+                      <RatedCaptionRow
+                        key={row.caption_id + idx}
+                        row={row}
+                        rank={idx + 1}
+                        badge={`${row.score >= 0 ? "+" : ""}${row.score} score`}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState title="No rating activity" body="Top rated captions will appear after users start voting." />
+                )}
+              </div>
             </section>
 
-            <section style={ui.card}>
-              <div style={ui.cardHeader}>
-                <div>
-                  <div style={ui.cardTitle}>Most captioned images</div>
-                  <div style={ui.cardSub}>Last 7 days</div>
+            <section style={ui.twoCol}>
+              <div style={ui.card}>
+                <div style={ui.cardHeader}>
+                  <div>
+                    <div style={ui.cardTitle}>Most captioned images</div>
+                    <div style={ui.cardSub}>Last 7 days</div>
+                  </div>
+                  <span style={ui.pill}>Hot</span>
                 </div>
-                <span style={ui.pill}>Hot</span>
+
+                {topImages.length ? (
+                  <div style={ui.imageGrid}>
+                    {topImages.map((img) => (
+                      <div key={img.image_id} style={ui.imageTile}>
+                        <div style={ui.imageFrame}>
+                          {img.url ? <img src={img.url} alt="" style={ui.img} /> : <div style={ui.imagePlaceholder}>No URL</div>}
+                        </div>
+                        <div style={ui.imageMeta}>
+                          <div style={ui.imageCount}>
+                            <b>{img.count}</b> captions
+                          </div>
+                          <div style={ui.imageId}>
+                            <code style={ui.code}>{img.image_id.slice(0, 10)}…</code>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState title="No recent data" body="Once users create captions, this section will populate." />
+                )}
               </div>
 
-              {topImages.length ? (
-                <div style={ui.imageGrid}>
-                  {topImages.map((img) => (
-                    <div key={img.image_id} style={ui.imageTile}>
-                      <div style={ui.imageFrame}>
-                        {img.url ? <img src={img.url} alt="" style={ui.img} /> : <div style={ui.imagePlaceholder}>No URL</div>}
-                      </div>
-                      <div style={ui.imageMeta}>
-                        <div style={ui.imageCount}>
-                          <b>{img.count}</b> captions
-                        </div>
-                        <div style={ui.imageId}>
-                          <code style={ui.code}>{img.image_id.slice(0, 10)}…</code>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+              <div style={ui.card}>
+                <div style={ui.cardHeader}>
+                  <div>
+                    <div style={ui.cardTitle}>Most rated captions</div>
+                    <div style={ui.cardSub}>Captions drawing the most feedback</div>
+                  </div>
+                  <span style={ui.pill}>Engagement</span>
                 </div>
-              ) : (
-                <EmptyState title="No recent data" body="Once users create captions, this section will populate." />
-              )}
+
+                {mostRatedCaptions.length ? (
+                  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                    {mostRatedCaptions.map((row, idx) => (
+                      <RatedCaptionRow key={row.caption_id + idx} row={row} rank={idx + 1} badge={`${row.totalVotes} votes`} />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState title="No rating activity" body="Most rated captions will appear after users start voting." />
+                )}
+              </div>
             </section>
           </>
         ) : null}
@@ -2167,6 +2387,13 @@ function formatIdNumberOrDateForTable(text: string) {
   return null;
 }
 
+function truncateMiddle(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  if (maxLength <= 10) return `${value.slice(0, maxLength)}…`;
+  const keep = Math.floor((maxLength - 1) / 2);
+  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
+}
+
 function getFileExtension(filename: string) {
   return filename.split(".").pop()?.toLowerCase() || "png";
 }
@@ -2510,16 +2737,150 @@ function HumorFlavorStepsView({ rows }: { rows: GenericRow[] }) {
   );
 }
 
+function aggregateCaptionVotes(voteRows: Array<{ vote_value: number | null }>) {
+  let likes = 0;
+  let dislikes = 0;
+  let neutral = 0;
+  const byValue = new Map<number, number>();
+  for (const r of voteRows) {
+    const v = r.vote_value;
+    if (v == null) continue;
+    byValue.set(v, (byValue.get(v) ?? 0) + 1);
+    if (v > 0) likes += 1;
+    else if (v < 0) dislikes += 1;
+    else neutral += 1;
+  }
+  return {
+    total: voteRows.length,
+    likes,
+    dislikes,
+    neutral,
+    net: likes - dislikes,
+    byValue,
+  };
+}
+
+function CaptionVoteBreakdown({ captionId }: { captionId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [stats, setStats] = useState<ReturnType<typeof aggregateCaptionVotes> | null>(null);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    setStats(null);
+
+    (async () => {
+      const { data, error: qErr } = await supabase
+        .from("caption_votes")
+        .select("vote_value")
+        .eq("caption_id", captionId);
+
+      if (cancelled) return;
+      if (qErr) {
+        setError(qErr.message);
+        setLoading(false);
+        return;
+      }
+      setStats(aggregateCaptionVotes((data ?? []) as Array<{ vote_value: number | null }>));
+      setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [captionId]);
+
+  if (loading) {
+    return (
+      <div style={ui.captionVotePanel}>
+        <div style={{ opacity: 0.75 }}>Loading vote breakdown…</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={ui.captionVotePanel}>
+        <div style={{ color: "rgba(255,180,180,0.95)" }}>{error}</div>
+      </div>
+    );
+  }
+
+  if (!stats || stats.total === 0) {
+    return (
+      <div style={ui.captionVotePanel}>
+        <div style={ui.captionVoteTitle}>Rating breakdown</div>
+        <div style={{ opacity: 0.75, marginTop: 6 }}>No votes recorded for this caption yet.</div>
+      </div>
+    );
+  }
+
+  const byValueRows = [...stats.byValue.entries()].sort((a, b) => a[0] - b[0]);
+
+  return (
+    <div style={ui.captionVotePanel}>
+      <div style={ui.captionVoteTitle}>Rating breakdown</div>
+      <div style={ui.captionVoteStatGrid}>
+        <div style={ui.captionVoteStat}>
+          <div style={ui.captionVoteStatLabel}>Total votes</div>
+          <div style={ui.captionVoteStatValue}>{stats.total}</div>
+        </div>
+        <div style={ui.captionVoteStat}>
+          <div style={ui.captionVoteStatLabel}>Upvotes (+)</div>
+          <div style={ui.captionVoteStatValue}>{stats.likes}</div>
+        </div>
+        <div style={ui.captionVoteStat}>
+          <div style={ui.captionVoteStatLabel}>Downvotes (−)</div>
+          <div style={ui.captionVoteStatValue}>{stats.dislikes}</div>
+        </div>
+        {stats.neutral > 0 ? (
+          <div style={ui.captionVoteStat}>
+            <div style={ui.captionVoteStatLabel}>Neutral (0)</div>
+            <div style={ui.captionVoteStatValue}>{stats.neutral}</div>
+          </div>
+        ) : null}
+        <div style={ui.captionVoteStat}>
+          <div style={ui.captionVoteStatLabel}>Net score</div>
+          <div style={ui.captionVoteStatValue}>{stats.net >= 0 ? "+" : ""}{stats.net}</div>
+        </div>
+      </div>
+      {byValueRows.length > 1 ? (
+        <>
+          <div style={{ ...ui.textBlockLabel, marginTop: 14 }}>By vote value</div>
+          <div style={ui.captionVoteByValue}>
+            {byValueRows.map(([value, count]) => (
+              <div key={value} style={ui.captionVoteByValueRow}>
+                <code style={ui.code}>{value}</code>
+                <span style={{ opacity: 0.85 }}>{count}×</span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function CaptionsView({ rows }: { rows: GenericRow[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   if (!rows.length) {
     return <EmptyState title="No captions" body="No rows found." />;
   }
 
   return (
     <div style={{ overflowX: "auto" }}>
+      <div style={{ opacity: 0.72, fontSize: 13, marginBottom: 10 }}>
+        Click <b style={{ opacity: 0.95 }}>View votes</b> or the <b style={{ opacity: 0.95 }}>caption text</b> to load per-caption stats from{" "}
+        <code style={ui.code}>caption_votes</code>.
+      </div>
       <table style={ui.table}>
         <thead>
           <tr>
+            <Th>Ratings</Th>
             <Th>Created</Th>
             <Th>Caption</Th>
             <Th>Likes</Th>
@@ -2530,19 +2891,63 @@ function CaptionsView({ rows }: { rows: GenericRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, idx) => (
-            <tr key={String(row.id ?? idx)}>
-              <Td>{row.created_datetime_utc ? new Date(row.created_datetime_utc).toLocaleString() : "—"}</Td>
-              <Td>
-                <div style={ui.captionCell}>{row.content ?? row.caption ?? "—"}</div>
-              </Td>
-              <Td>{row.like_count ?? 0}</Td>
-              <Td>{row.is_public ? "Yes" : "No"}</Td>
-              <Td>{row.profile_id ? String(row.profile_id).slice(0, 12) + "…" : "—"}</Td>
-              <Td>{row.image_id ? String(row.image_id).slice(0, 12) + "…" : "—"}</Td>
-              <Td>{row.id ? String(row.id).slice(0, 12) + "…" : "—"}</Td>
-            </tr>
-          ))}
+          {rows.map((row, idx) => {
+            const id = row.id != null ? String(row.id) : "";
+            const isOpen = Boolean(id && expandedId === id);
+            return (
+              <Fragment key={id || String(idx)}>
+                <tr>
+                  <Td>
+                    {id ? (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId((cur) => (cur === id ? null : id))}
+                        style={ui.captionVoteToggleBtn}
+                        aria-expanded={isOpen}
+                      >
+                        {isOpen ? "Hide" : "View votes"}
+                      </button>
+                    ) : (
+                      "—"
+                    )}
+                  </Td>
+                  <Td>{row.created_datetime_utc ? new Date(row.created_datetime_utc).toLocaleString() : "—"}</Td>
+                  <Td>
+                    <div
+                      style={id ? { ...ui.captionCell, cursor: "pointer" } : ui.captionCell}
+                      onClick={() => {
+                        if (id) setExpandedId((cur) => (cur === id ? null : id));
+                      }}
+                      title={id ? "Click to show or hide vote breakdown" : undefined}
+                      role={id ? "button" : undefined}
+                      tabIndex={id ? 0 : undefined}
+                      onKeyDown={(e) => {
+                        if (!id) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setExpandedId((cur) => (cur === id ? null : id));
+                        }
+                      }}
+                    >
+                      {row.content ?? row.caption ?? "—"}
+                    </div>
+                  </Td>
+                  <Td>{row.like_count ?? 0}</Td>
+                  <Td>{row.is_public ? "Yes" : "No"}</Td>
+                  <Td>{row.profile_id ? String(row.profile_id).slice(0, 12) + "…" : "—"}</Td>
+                  <Td>{row.image_id ? String(row.image_id).slice(0, 12) + "…" : "—"}</Td>
+                  <Td>{row.id ? String(row.id).slice(0, 12) + "…" : "—"}</Td>
+                </tr>
+                {isOpen && id ? (
+                  <tr>
+                    <td colSpan={8} style={{ borderBottom: "1px solid rgba(255,255,255,0.08)", padding: 0 }}>
+                      <CaptionVoteBreakdown captionId={id} />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -2765,26 +3170,87 @@ function KpiCard({ title, value, subtitle }: { title: string; value: string; sub
   );
 }
 
+function RatedCaptionRow({ row, badge, rank }: { row: RatedCaption; badge: string; rank: number }) {
+  return (
+    <div style={ui.ratedCaptionRow}>
+      <div style={ui.rank}>{rank}</div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={ui.ratedCaptionText}>{truncateMiddle(row.content || "Untitled caption", 140)}</div>
+        <div style={ui.ratedCaptionMeta}>
+          <span style={ui.metricPill}>{row.totalVotes} votes</span>
+          <span style={ui.metricPill}>+{row.likes}</span>
+          <span style={ui.metricPill}>-{row.dislikes}</span>
+        </div>
+      </div>
+      <div style={ui.smallPill}>{badge}</div>
+    </div>
+  );
+}
+
 function SparkBars({
   points,
   maxY,
+  unitLabel,
 }: {
   points: { day: string; count: number }[];
   maxY: number;
+  unitLabel: string;
 }) {
+  const [hover, setHover] = useState<{ day: string; count: number; x: number; y: number } | null>(null);
+
+  const tooltip =
+    hover &&
+    typeof document !== "undefined" &&
+    createPortal(
+      <div
+        role="tooltip"
+        style={{
+          pointerEvents: "none",
+          position: "fixed",
+          left: hover.x + 12,
+          top: hover.y + 12,
+          zIndex: 99999,
+          padding: "8px 12px",
+          borderRadius: 10,
+          border: "1px solid rgba(255,255,255,0.22)",
+          background: "#14161c",
+          color: "#ffffff",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
+          fontSize: 12,
+          fontWeight: 800,
+          lineHeight: 1.35,
+        }}
+      >
+        <div style={{ color: "rgba(255,255,255,0.92)" }}>{hover.day}</div>
+        <div style={{ marginTop: 4, fontWeight: 950, color: "#ffffff" }}>
+          {hover.count.toLocaleString()} {unitLabel}
+        </div>
+      </div>,
+      document.body
+    );
+
   return (
-    <div style={ui.sparkWrap}>
-      {points.map((p) => {
-        const h = Math.round((p.count / maxY) * 100);
-        return (
-          <div key={p.day} style={ui.sparkCol} title={`${p.day}: ${p.count}`}>
-            <div style={ui.sparkTrack}>
-              <div style={{ ...(ui.sparkFill as CSSProperties), height: `${Math.max(4, h)}%` }} />
+    <div style={ui.sparkPanel}>
+      <div style={ui.sparkWrap}>
+        {points.map((p) => {
+          const h = Math.round((p.count / maxY) * 100);
+          return (
+            <div
+              key={p.day}
+              style={ui.sparkCol}
+              onMouseEnter={(e) => setHover({ day: p.day, count: p.count, x: e.clientX, y: e.clientY })}
+              onMouseMove={(e) => setHover({ day: p.day, count: p.count, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setHover(null)}
+            >
+              <div style={ui.sparkTrack}>
+                <div style={{ ...(ui.sparkFill as CSSProperties), height: `${Math.max(4, h)}%` }} />
+              </div>
+              <div style={ui.sparkLabel}>{p.day.slice(5)}</div>
             </div>
-            <div style={ui.sparkLabel}>{p.day.slice(5)}</div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+      {tooltip}
     </div>
   );
 }
@@ -3082,7 +3548,7 @@ const ui: Record<string, CSSProperties> = {
 
   kpiGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
     gap: 14,
     marginTop: 18,
   },
@@ -3285,6 +3751,12 @@ const ui: Record<string, CSSProperties> = {
     minHeight: 160,
     padding: "6px 4px",
   },
+  sparkPanel: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    minWidth: 0,
+  },
   sparkCol: {
     flex: 1,
     minWidth: 30,
@@ -3303,6 +3775,36 @@ const ui: Record<string, CSSProperties> = {
   },
   sparkFill: { width: "100%", borderRadius: 14, background: "rgba(255,255,255,0.20)" },
   sparkLabel: { marginTop: 8, fontSize: 11, opacity: 0.6, textAlign: "center" },
+  ratedCaptionRow: {
+    display: "grid",
+    gridTemplateColumns: "28px 1fr auto",
+    gap: 12,
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 16,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.03)",
+  },
+  ratedCaptionText: {
+    fontWeight: 850,
+    fontSize: 13,
+    lineHeight: 1.4,
+  },
+  ratedCaptionMeta: {
+    marginTop: 8,
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  metricPill: {
+    padding: "4px 8px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.06)",
+    fontSize: 11,
+    opacity: 0.85,
+    fontWeight: 800,
+  },
 
   empty: {
     marginTop: 12,
@@ -3637,6 +4139,69 @@ const ui: Record<string, CSSProperties> = {
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
     lineHeight: 1.5,
+  },
+
+  captionVoteToggleBtn: {
+    height: 34,
+    padding: "0 12px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.16)",
+    background: "rgba(255,255,255,0.08)",
+    color: "white",
+    fontWeight: 850,
+    fontSize: 12,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  captionVotePanel: {
+    padding: "14px 16px 16px",
+    background: "rgba(255,255,255,0.04)",
+    borderTop: "1px solid rgba(255,255,255,0.06)",
+  },
+  captionVoteTitle: {
+    fontWeight: 950,
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  captionVoteStatGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+    gap: 12,
+    marginTop: 10,
+  },
+  captionVoteStat: {
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(0,0,0,0.18)",
+  },
+  captionVoteStatLabel: {
+    fontSize: 11,
+    opacity: 0.72,
+    fontWeight: 800,
+  },
+  captionVoteStatValue: {
+    marginTop: 4,
+    fontSize: 20,
+    fontWeight: 1000,
+    letterSpacing: -0.5,
+  },
+  captionVoteByValue: {
+    marginTop: 8,
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  captionVoteByValueRow: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.05)",
+    fontSize: 12,
+    fontWeight: 800,
   },
 
   textBlock: {
